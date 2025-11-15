@@ -1,0 +1,11 @@
+## Interface: 110205
+## Title: Legion Remix Lockout Filter
+## Notes: Filter the LFG to show everything you're not locked out from for that day to see what you still have left to do.
+## Author: Figment (Illidan)
+## Version: 1.0
+
+LRLF_Config.lua
+LegionRemixLockoutFilter_LFG.lua
+LegionRemixLockoutFilter_Filter.lua
+LegionRemixLockoutFilter_UI.lua
+LegionRemixLockoutFilter.lua
