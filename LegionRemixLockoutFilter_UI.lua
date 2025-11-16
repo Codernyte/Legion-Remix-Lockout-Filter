@@ -101,10 +101,92 @@ local function LRLF_Diff_OnLeave(self)
 end
 
 --------------------------------------------------
+-- Selection helpers for right-click focus
+--------------------------------------------------
+
+local function LRLF_SelectOnlyInstance(kind, targetInstName)
+    if not kind or not targetInstName or not LRLF_Rows or not LRLF_Rows[kind] then
+        return
+    end
+
+    LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
+    LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
+
+    local filterKind = LRLF_FilterState[kind]
+    local sysKind    = LRLF_SystemSelection[kind]
+
+    for _, row in ipairs(LRLF_Rows[kind]) do
+        local instName = row.instanceName
+        if instName then
+            filterKind[instName] = filterKind[instName] or {}
+            sysKind[instName]    = sysKind[instName]    or {}
+
+            local instState = filterKind[instName]
+            local sysInst   = sysKind[instName]
+
+            for _, diffName in ipairs(DIFF_ORDER) do
+                local selected = false
+                if instName == targetInstName then
+                    -- For instance-level focus, select all difficulties that are currently "Ready".
+                    local status = row.diffStatus and row.diffStatus[diffName]
+                    if status and status.isReady then
+                        selected = true
+                    end
+                end
+
+                instState[diffName] = selected
+                sysInst[diffName]   = false -- user-managed
+            end
+        end
+    end
+
+    LRLF_RefreshSidePanelText(kind)
+end
+
+local function LRLF_SelectOnlyDifficulty(kind, targetInstName, targetDiffName)
+    if not kind or not targetInstName or not targetDiffName or not LRLF_Rows or not LRLF_Rows[kind] then
+        return
+    end
+
+    LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
+    LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
+
+    local filterKind = LRLF_FilterState[kind]
+    local sysKind    = LRLF_SystemSelection[kind]
+
+    for _, row in ipairs(LRLF_Rows[kind]) do
+        local instName = row.instanceName
+        if instName then
+            filterKind[instName] = filterKind[instName] or {}
+            sysKind[instName]    = sysKind[instName]    or {}
+
+            local instState = filterKind[instName]
+            local sysInst   = sysKind[instName]
+
+            for _, diffName in ipairs(DIFF_ORDER) do
+                local selected = (instName == targetInstName and diffName == targetDiffName)
+                instState[diffName] = selected
+                sysInst[diffName]   = false -- user-managed
+            end
+        end
+    end
+
+    LRLF_RefreshSidePanelText(kind)
+end
+
+--------------------------------------------------
 -- Checkbox handlers
 --------------------------------------------------
 
-local function LRLF_OnAllCheckboxClick(self)
+local function LRLF_OnAllCheckboxClick(self, button)
+    if button == "RightButton" then
+        local row = self:GetParent()
+        if row and row.instanceName and row.kind then
+            LRLF_SelectOnlyInstance(row.kind, row.instanceName)
+        end
+        return
+    end
+
     local row = self:GetParent()
     if not row or not row.instanceName or not row.kind then return end
 
@@ -137,13 +219,18 @@ local function LRLF_OnAllCheckboxClick(self)
     LRLF_UpdateRowAllCheckbox(row, instState)
 end
 
-local function LRLF_OnDifficultyCheckboxClick(self)
+local function LRLF_OnDifficultyCheckboxClick(self, button)
     local row = self.row
     if not row or not row.instanceName or not row.kind or not self.diffName then return end
 
     local instName = row.instanceName
     local kind     = row.kind
     local diffName = self.diffName
+
+    if button == "RightButton" then
+        LRLF_SelectOnlyDifficulty(kind, instName, diffName)
+        return
+    end
 
     LRLF_FilterState[kind]       = LRLF_FilterState[kind]       or {}
     LRLF_SystemSelection[kind]   = LRLF_SystemSelection[kind]   or {}
@@ -859,8 +946,8 @@ function LRLF_RefreshSidePanelText(kind)
             local instState = filterKind[instName]
 
             local row = EnsureRow(rowIndex)
-            row.kind         = kind
-            row.instanceName = instName
+            row.kind             = kind
+            row.instanceName     = instName
             row.isAllUnavailable = false
 
             row:SetSize(content:GetWidth(), rowHeight)
@@ -871,6 +958,7 @@ function LRLF_RefreshSidePanelText(kind)
                 local cbAll = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
                 cbAll:SetSize(18, 18)
                 cbAll:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
+                cbAll:RegisterForClicks("LeftButtonUp", "RightButtonUp")
                 cbAll:SetScript("OnClick", LRLF_OnAllCheckboxClick)
                 row.allCheck = cbAll
             else
@@ -889,6 +977,12 @@ function LRLF_RefreshSidePanelText(kind)
             row.nameText:SetText(instName)
             row.nameText:SetFontObject("GameFontNormal")
             row.nameText:SetTextColor(1, 0.82, 0)
+            row.nameText.row = row
+            row.nameText:SetScript("OnMouseDown", function(self, button)
+                if button == "RightButton" and self.row and self.row.instanceName and self.row.kind then
+                    LRLF_SelectOnlyInstance(self.row.kind, self.row.instanceName)
+                end
+            end)
 
             -- Clear per-row state
             for k in pairs(row.activeDiffs) do
@@ -920,6 +1014,7 @@ function LRLF_RefreshSidePanelText(kind)
                         cb:SetSize(16, 16)
                         cb.row      = row
                         cb.diffName = diffName
+                        cb:RegisterForClicks("LeftButtonUp", "RightButtonUp")
                         cb:SetScript("OnClick", LRLF_OnDifficultyCheckboxClick)
                         cb:SetScript("OnEnter", LRLF_Diff_OnEnter)
                         cb:SetScript("OnLeave", LRLF_Diff_OnLeave)
@@ -932,9 +1027,9 @@ function LRLF_RefreshSidePanelText(kind)
                         label.diffName = diffName
                         label:SetScript("OnEnter", LRLF_Diff_OnEnter)
                         label:SetScript("OnLeave", LRLF_Diff_OnLeave)
-                        label:SetScript("OnMouseDown", function()
+                        label:SetScript("OnMouseDown", function(self, button)
                             if cb:IsEnabled() then
-                                cb:Click()
+                                cb:Click(button or "LeftButton")
                             end
                         end)
                     end
@@ -1048,6 +1143,7 @@ function LRLF_RefreshSidePanelText(kind)
                     local cbAll = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
                     cbAll:SetSize(18, 18)
                     cbAll:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
+                    cbAll:RegisterForClicks("LeftButtonUp", "RightButtonUp")
                     cbAll:SetScript("OnClick", LRLF_OnAllCheckboxClick)
                     row.allCheck = cbAll
                 end
@@ -1067,6 +1163,12 @@ function LRLF_RefreshSidePanelText(kind)
                 row.nameText:SetText(instName)
                 row.nameText:SetFontObject("GameFontDisable")
                 row.nameText:SetTextColor(0.5, 0.5, 0.5)
+                row.nameText.row = row
+                row.nameText:SetScript("OnMouseDown", function(self, button)
+                    if button == "RightButton" and self.row and self.row.instanceName and self.row.kind then
+                        LRLF_SelectOnlyInstance(self.row.kind, self.row.instanceName)
+                    end
+                end)
 
                 -- Hide any difficulty controls for this row
                 for _, diffName in ipairs(DIFF_ORDER) do
