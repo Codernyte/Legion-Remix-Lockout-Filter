@@ -15,9 +15,7 @@ ADDON_TABLE.Filter = LRLF_Filter
 --   LRLF_NormalizeName, LRLF_ClassifyDifficulty
 --   LRLF_GetLegionRaids / LRLF_GetLegionDungeons
 --
--- IMPORTANT:
---   * Uses info.activityIDs (plural) as the primary activity reference.
---   * Optionally hides WTS/BUY/SELL-style listings when LRLF_WTSFilterEnabled is true.
+-- IMPORTANT: Uses info.activityIDs (plural) as the primary activity reference.
 --------------------------------------------------
 
 function LRLF_Filter.FilterResults(results, kind)
@@ -33,7 +31,9 @@ function LRLF_Filter.FilterResults(results, kind)
         return
     end
 
+    --------------------------------------------------
     -- Check if at least one difficulty is selected anywhere
+    --------------------------------------------------
     local anySelected = false
     for _, instState in pairs(filterKind) do
         if type(instState) == "table" then
@@ -55,7 +55,9 @@ function LRLF_Filter.FilterResults(results, kind)
         return
     end
 
+    --------------------------------------------------
     -- Build Legion instance list for this kind
+    --------------------------------------------------
     local instanceList
     if kind == "dungeon" then
         instanceList = select(1, LRLF_GetLegionDungeons())
@@ -73,6 +75,9 @@ function LRLF_Filter.FilterResults(results, kind)
         end
     end
 
+    --------------------------------------------------
+    -- Result match helper
+    --------------------------------------------------
     local function ResultMatchesSelection(resultID)
         if not C_LFGList
             or not C_LFGList.GetSearchResultInfo
@@ -84,36 +89,6 @@ function LRLF_Filter.FilterResults(results, kind)
         local info = C_LFGList.GetSearchResultInfo(resultID)
         if not info then
             return false
-        end
-
-        -- Optional WTS filter: hide buy/sell/WTS listings by title.
-        -- We:
-        --   * lower-case the title
-        --   * strip WoW color/texture codes
-        --   * build "lettersOnly" (non-letters removed)
-        --   * look for wts/buy/sell in either plain or lettersOnly
-        if LRLF_WTSFilterEnabled ~= false then
-            local title = (info.name or info.activityName or "")
-            title = title:lower()
-
-            -- Strip common markup: color codes and texture tags
-            local plain = title
-            plain = plain:gsub("|c%x%x%x%x%x%x%x%x", "")
-            plain = plain:gsub("|r", "")
-            plain = plain:gsub("|T.-|t", "")
-
-            -- Remove everything that's not a–z to catch "w t s", "w{star}t{s}" etc.
-            local lettersOnly = plain:gsub("[^a-z]", "")
-
-            if plain:find("wts", 1, true)
-                or lettersOnly:find("wts", 1, true)
-                or plain:find("buy", 1, true)
-                or lettersOnly:find("buy", 1, true)
-                or plain:find("sell", 1, true)
-                or lettersOnly:find("sell", 1, true)
-            then
-                return false
-            end
         end
 
         local activityIDs = info.activityIDs
@@ -149,7 +124,9 @@ function LRLF_Filter.FilterResults(results, kind)
         return false
     end
 
+    --------------------------------------------------
     -- In-place filtering using shift-down pattern
+    --------------------------------------------------
     local shift_down    = 0
     local original_size = #results
 
@@ -171,4 +148,12 @@ function LRLF_Filter.FilterResults(results, kind)
             results[idx] = nil
         end
     end
+end
+
+--------------------------------------------------
+-- Global wrapper so other modules can call filtering
+-- without depending on ADDON_TABLE wiring quirks.
+--------------------------------------------------
+function LRLF_FilterResults(results, kind)
+    return LRLF_Filter.FilterResults(results, kind)
 end
