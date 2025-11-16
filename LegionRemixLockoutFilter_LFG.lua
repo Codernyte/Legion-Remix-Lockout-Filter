@@ -59,22 +59,38 @@ local function LRLF_ApplyLockouts(infoMap, isRaidFlag)
 end
 
 --------------------------------------------------
+-- Shared: select the Legion tier in the Encounter Journal
+-- Returns:
+--   legionTierIndex, nil        on success
+--   nil, "error message"        on failure
+--------------------------------------------------
+
+local function LRLF_SelectLegionTier()
+    -- Ensure EJ API is available
+    if not EJ_GetInstanceByIndex or not EJ_SelectTier or not EJ_GetNumTiers or not EJ_GetTierInfo then
+        return nil, "Encounter Journal API not available."
+    end
+
+    local legionTierIndex, tierErr = LRLF_FindLegionTierIndex()
+    if not legionTierIndex then
+        return nil, tierErr or "Could not find a Legion tier in the Encounter Journal."
+    end
+
+    EJ_SelectTier(legionTierIndex)
+    return legionTierIndex, nil
+end
+
+--------------------------------------------------
 -- Get Legion raids from the Encounter Journal
 --------------------------------------------------
 
 function LRLF_GetLegionRaids()
     local raids = {}
 
-    if not EJ_GetInstanceByIndex or not EJ_SelectTier or not EJ_GetNumTiers or not EJ_GetTierInfo then
-        return raids, "Encounter Journal API not available."
-    end
-
-    local legionTierIndex, tierErr = LRLF_FindLegionTierIndex()
+    local legionTierIndex, tierErr = LRLF_SelectLegionTier()
     if not legionTierIndex then
-        return raids, tierErr or "Could not find a Legion tier in the Encounter Journal."
+        return raids, tierErr
     end
-
-    EJ_SelectTier(legionTierIndex)
 
     local excludeByName = {
         ["Broken Isles"]    = true,
@@ -109,16 +125,10 @@ end
 function LRLF_GetLegionDungeons()
     local dungeons = {}
 
-    if not EJ_GetInstanceByIndex or not EJ_SelectTier or not EJ_GetNumTiers or not EJ_GetTierInfo then
-        return dungeons, "Encounter Journal API not available."
-    end
-
-    local legionTierIndex, tierErr = LRLF_FindLegionTierIndex()
+    local legionTierIndex, tierErr = LRLF_SelectLegionTier()
     if not legionTierIndex then
-        return dungeons, tierErr or "Could not find a Legion tier in the Encounter Journal."
+        return dungeons, tierErr
     end
-
-    EJ_SelectTier(legionTierIndex)
 
     local index = 1
     while true do
@@ -200,24 +210,29 @@ function LRLF_ClassifyDifficulty(info)
 end
 
 --------------------------------------------------
--- Build per-raid availability info from LFGList
+-- Shared: build availability map for a set of instances
+-- getInstancesFunc: function that returns (instances, basicErr)
+--   where instances is { { id = <number>, name = <string> }, ... }
 --------------------------------------------------
 
-function LRLF_GetLegionRaidAvailability()
-    local raids, basicErr = LRLF_GetLegionRaids()
+local function LRLF_GetLegionAvailability(getInstancesFunc)
+    local instances, basicErr = getInstancesFunc()
     local byName = {}
 
-    for _, r in ipairs(raids) do
-        byName[r.name] = {
-            id = r.id,
+    -- Initialize byName with ids and empty activities arrays
+    for _, inst in ipairs(instances) do
+        byName[inst.name] = {
+            id         = inst.id,
             activities = {},
         }
     end
 
-    if basicErr and #raids == 0 then
+    -- If the EJ call returned an error and no instances at all, just return
+    if basicErr and #instances == 0 then
         return byName, basicErr
     end
 
+    -- LFG API checks
     if not C_LFGList
         or not C_LFGList.GetAvailableActivities
         or not C_LFGList.GetActivityInfoTable
@@ -230,21 +245,23 @@ function LRLF_GetLegionRaidAvailability()
         return byName, "No LFG activities are currently available (nil returned)."
     end
 
+    -- Precompute normalized search keys for each instance name
     local searchKeys = {}
-    for raidName in pairs(byName) do
-        searchKeys[raidName] = LRLF_NormalizeName(raidName)
+    for name in pairs(byName) do
+        searchKeys[name] = LRLF_NormalizeName(name)
     end
 
+    -- Walk all available activities and attach ones that match
     for _, activityID in ipairs(activities) do
         local info = C_LFGList.GetActivityInfoTable(activityID)
         if info and info.fullName then
             local fullNameNorm    = LRLF_NormalizeName(info.fullName)
             local difficultyLabel = LRLF_ClassifyDifficulty(info)
 
-            for raidName, raidData in pairs(byName) do
-                local key = searchKeys[raidName]
+            for name, data in pairs(byName) do
+                local key = searchKeys[name]
                 if key and fullNameNorm:find(key, 1, true) then
-                    table.insert(raidData.activities, {
+                    table.insert(data.activities, {
                         activityID      = activityID,
                         fullName        = info.fullName,
                         categoryID      = info.categoryID,
@@ -265,68 +282,19 @@ function LRLF_GetLegionRaidAvailability()
 end
 
 --------------------------------------------------
+-- Build per-raid availability info from LFGList
+--------------------------------------------------
+
+function LRLF_GetLegionRaidAvailability()
+    return LRLF_GetLegionAvailability(LRLF_GetLegionRaids)
+end
+
+--------------------------------------------------
 -- Build per-dungeon availability info from LFGList
 --------------------------------------------------
 
 function LRLF_GetLegionDungeonAvailability()
-    local dungeons, basicErr = LRLF_GetLegionDungeons()
-    local byName = {}
-
-    for _, d in ipairs(dungeons) do
-        byName[d.name] = {
-            id = d.id,
-            activities = {},
-        }
-    end
-
-    if basicErr and #dungeons == 0 then
-        return byName, basicErr
-    end
-
-    if not C_LFGList
-        or not C_LFGList.GetAvailableActivities
-        or not C_LFGList.GetActivityInfoTable
-    then
-        return byName, "LFGList API not available."
-    end
-
-    local activities = C_LFGList.GetAvailableActivities()
-    if not activities then
-        return byName, "No LFG activities are currently available (nil returned)."
-    end
-
-    local searchKeys = {}
-    for dungeonName in pairs(byName) do
-        searchKeys[dungeonName] = LRLF_NormalizeName(dungeonName)
-    end
-
-    for _, activityID in ipairs(activities) do
-        local info = C_LFGList.GetActivityInfoTable(activityID)
-        if info and info.fullName then
-            local fullNameNorm    = LRLF_NormalizeName(info.fullName)
-            local difficultyLabel = LRLF_ClassifyDifficulty(info)
-
-            for dungeonName, dungeonData in pairs(byName) do
-                local key = searchKeys[dungeonName]
-                if key and fullNameNorm:find(key, 1, true) then
-                    table.insert(dungeonData.activities, {
-                        activityID      = activityID,
-                        fullName        = info.fullName,
-                        categoryID      = info.categoryID,
-                        groupID         = info.groupFinderActivityGroupID,
-                        minLevel        = info.minLevel,
-                        maxNumPlayers   = info.maxNumPlayers,
-                        isMythic        = info.isMythicActivity,
-                        isCurrentRaid   = info.isCurrentRaidActivity,
-                        difficultyID    = info.difficultyID,
-                        difficulty      = difficultyLabel,
-                    })
-                end
-            end
-        end
-    end
-
-    return byName, nil
+    return LRLF_GetLegionAvailability(LRLF_GetLegionDungeons)
 end
 
 --------------------------------------------------

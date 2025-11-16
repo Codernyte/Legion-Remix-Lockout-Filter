@@ -7,6 +7,103 @@ local LRLF_Filter = ADDON_TABLE.Filter or {}
 ADDON_TABLE.Filter = LRLF_Filter
 
 --------------------------------------------------
+-- Local helpers
+--------------------------------------------------
+
+-- Returns true if any difficulty is selected for any instance
+local function HasAnySelectedDifficulty(filterKind)
+    if not filterKind then
+        return false
+    end
+
+    for _, instState in pairs(filterKind) do
+        if type(instState) == "table" then
+            for _, v in pairs(instState) do
+                if v then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+-- Build a normalized index of Legion instances for this kind
+-- kind: "raid" or "dungeon"
+local function BuildInstanceIndex(kind)
+    local instanceList
+
+    if kind == "dungeon" then
+        instanceList = select(1, LRLF_GetLegionDungeons())
+    else
+        instanceList = select(1, LRLF_GetLegionRaids())
+    end
+
+    local instances = {}
+    if instanceList then
+        for _, inst in ipairs(instanceList) do
+            table.insert(instances, {
+                name = inst.name,
+                key  = LRLF_NormalizeName(inst.name),
+            })
+        end
+    end
+
+    return instances
+end
+
+-- Check whether this search result matches the current selection
+local function ResultMatchesSelection(resultID, kind, filterKind, instances)
+    if not C_LFGList
+        or not C_LFGList.GetSearchResultInfo
+        or not C_LFGList.GetActivityInfoTable
+    then
+        return false
+    end
+
+    local info = C_LFGList.GetSearchResultInfo(resultID)
+    if not info then
+        return false
+    end
+
+    --------------------------------------------------
+    -- activityIDs-first rule
+    --------------------------------------------------
+    local activityIDs = info.activityIDs
+    if not activityIDs or type(activityIDs) ~= "table" or #activityIDs == 0 then
+        -- Modern clients use activityIDs; treat single activityID as legacy fallback
+        if info.activityID then
+            activityIDs = { info.activityID }
+        else
+            return false
+        end
+    end
+
+    -- OR across all activityIDs for this listing
+    for _, activityID in ipairs(activityIDs) do
+        local activityInfo = C_LFGList.GetActivityInfoTable(activityID)
+        if activityInfo and activityInfo.fullName then
+            local diffLabel    = LRLF_ClassifyDifficulty(activityInfo)
+            local fullNameNorm = LRLF_NormalizeName(activityInfo.fullName)
+
+            if diffLabel then
+                for _, inst in ipairs(instances) do
+                    if fullNameNorm:find(inst.key, 1, true) then
+                        local instState = filterKind[inst.name]
+                        if instState and instState[diffLabel] then
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+--------------------------------------------------
 -- Filter a resultID list in-place based on current filter state
 -- kind: "raid" or "dungeon"
 --
@@ -34,18 +131,7 @@ function LRLF_Filter.FilterResults(results, kind)
     --------------------------------------------------
     -- Check if at least one difficulty is selected anywhere
     --------------------------------------------------
-    local anySelected = false
-    for _, instState in pairs(filterKind) do
-        if type(instState) == "table" then
-            for _, v in pairs(instState) do
-                if v then
-                    anySelected = true
-                    break
-                end
-            end
-        end
-        if anySelected then break end
-    end
+    local anySelected = HasAnySelectedDifficulty(filterKind)
 
     -- If nothing selected, clear all results
     if not anySelected then
@@ -58,71 +144,7 @@ function LRLF_Filter.FilterResults(results, kind)
     --------------------------------------------------
     -- Build Legion instance list for this kind
     --------------------------------------------------
-    local instanceList
-    if kind == "dungeon" then
-        instanceList = select(1, LRLF_GetLegionDungeons())
-    else
-        instanceList = select(1, LRLF_GetLegionRaids())
-    end
-
-    local instances = {}
-    if instanceList then
-        for _, inst in ipairs(instanceList) do
-            table.insert(instances, {
-                name = inst.name,
-                key  = LRLF_NormalizeName(inst.name),
-            })
-        end
-    end
-
-    --------------------------------------------------
-    -- Result match helper
-    --------------------------------------------------
-    local function ResultMatchesSelection(resultID)
-        if not C_LFGList
-            or not C_LFGList.GetSearchResultInfo
-            or not C_LFGList.GetActivityInfoTable
-        then
-            return false
-        end
-
-        local info = C_LFGList.GetSearchResultInfo(resultID)
-        if not info then
-            return false
-        end
-
-        local activityIDs = info.activityIDs
-        if not activityIDs or type(activityIDs) ~= "table" or #activityIDs == 0 then
-            -- Modern clients use activityIDs; treat single activityID as legacy fallback
-            if info.activityID then
-                activityIDs = { info.activityID }
-            else
-                return false
-            end
-        end
-
-        -- OR across all activityIDs for this listing
-        for _, activityID in ipairs(activityIDs) do
-            local activityInfo = C_LFGList.GetActivityInfoTable(activityID)
-            if activityInfo and activityInfo.fullName then
-                local diffLabel    = LRLF_ClassifyDifficulty(activityInfo)
-                local fullNameNorm = LRLF_NormalizeName(activityInfo.fullName)
-
-                if diffLabel then
-                    for _, inst in ipairs(instances) do
-                        if fullNameNorm:find(inst.key, 1, true) then
-                            local instState = filterKind[inst.name]
-                            if instState and instState[diffLabel] then
-                                return true
-                            end
-                        end
-                    end
-                end
-            end
-        end
-
-        return false
-    end
+    local instances = BuildInstanceIndex(kind)
 
     --------------------------------------------------
     -- In-place filtering using shift-down pattern
@@ -132,7 +154,7 @@ function LRLF_Filter.FilterResults(results, kind)
 
     for idx = 1, original_size do
         local id   = results[idx]
-        local keep = ResultMatchesSelection(id)
+        local keep = ResultMatchesSelection(id, kind, filterKind, instances)
 
         if keep then
             if shift_down > 0 then

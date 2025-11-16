@@ -40,6 +40,20 @@ LRLF_OneClickSignupEnabled = (LRLF_OneClickSignupEnabled == true)
 LRLF_LastSearchWasFiltered = LRLF_LastSearchWasFiltered or false
 
 --------------------------------------------------
+-- Helpers
+--------------------------------------------------
+
+-- Map LFGList category ID -> our internal "kind" label
+local function LRLF_GetKindFromCategory(categoryID)
+    if categoryID == 2 then
+        return "dungeon"
+    elseif categoryID == 3 then
+        return "raid"
+    end
+    return nil
+end
+
+--------------------------------------------------
 -- Timerunner check
 --------------------------------------------------
 
@@ -107,10 +121,7 @@ function LRLF_TryHookLFG()
                 return
             end
 
-            local categoryID = panel.categoryID
-            local kind = (categoryID == 2 and "dungeon")
-                      or (categoryID == 3 and "raid")
-                      or nil
+            local kind = LRLF_GetKindFromCategory(panel.categoryID)
             if not kind then
                 return
             end
@@ -169,9 +180,8 @@ function LRLF_UpdateVisibility()
 
     local searchPanel = LFGListFrame.SearchPanel
     local categoryID  = searchPanel and searchPanel.categoryID
-    local isDungeon   = (categoryID == 2)
-    local isRaid      = (categoryID == 3)
-    local isDungeonOrRaid = isDungeon or isRaid
+    local kind        = categoryID and LRLF_GetKindFromCategory(categoryID)
+    local isDungeonOrRaid = (kind ~= nil)
 
     local premadeSearchActive =
         searchPanel
@@ -182,8 +192,6 @@ function LRLF_UpdateVisibility()
         LRLF_HideAll()
         return
     end
-
-    local kind = isDungeon and "dungeon" or "raid"
 
     LRLF_AttachToPremade()
     if not LRLF_ToggleButton then
@@ -199,7 +207,7 @@ function LRLF_UpdateVisibility()
     else
         if LRLFFrame then
             LRLFFrame:Show()
-            LRLF_RefreshSidePanelText(kind)
+            LRLF_RefreshSidePanelText(kind or "raid")
         end
         if LRLF_ToggleButton then LRLF_ToggleButton:Hide() end
         if LRLF_FilterButtons.apply then LRLF_FilterButtons.apply:Show() end

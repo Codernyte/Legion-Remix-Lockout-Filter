@@ -4,6 +4,13 @@
 local ADDON_NAME, ADDON_TABLE = ...
 
 --------------------------------------------------
+-- Config namespace (optional convenience)
+--------------------------------------------------
+
+ADDON_TABLE.Config = ADDON_TABLE.Config or {}
+local Config = ADDON_TABLE.Config
+
+--------------------------------------------------
 -- Static: Legion dungeon difficulty support
 -- Describes which difficulties exist in general
 -- for each Legion dungeon.
@@ -33,6 +40,8 @@ LEGION_DUNGEON_DIFFICULTIES = LEGION_DUNGEON_DIFFICULTIES or {
     ["Return to Karazhan: Lower"]   = { Normal = true, Heroic = true },
     ["Return to Karazhan: Upper"]   = { Normal = true, Heroic = true },
 }
+
+Config.LEGION_DUNGEON_DIFFICULTIES = LEGION_DUNGEON_DIFFICULTIES
 
 --------------------------------------------------
 -- Helper: format time from seconds as "Xd Yh Zm"
@@ -74,46 +83,50 @@ end
 -- Helper: map saved-instance difficulty IDs to "Normal"/"Heroic"/"Mythic"
 --------------------------------------------------
 
-function LRLF_MapSavedDifficultyToLabel(difficultyID, isRaid)
-    if not difficultyID then return nil end
+-- Primary mappings
+local RAID_DIFF_LABELS = {
+    [14] = "Normal",  -- Raid Normal
+    [15] = "Heroic",  -- Raid Heroic
+    [16] = "Mythic",  -- Raid Mythic
+}
 
-    -- 5-man
-    -- 1: 5-player (Normal)
-    -- 2: 5-player (Heroic)
-    -- 23: 5-player (Mythic)
-    -- Raids
-    -- 14: Normal
-    -- 15: Heroic
-    -- 16: Mythic
+local DUNGEON_DIFF_LABELS = {
+    [1]  = "Normal",  -- 5-player Normal
+    [2]  = "Heroic",  -- 5-player Heroic
+    [23] = "Mythic",  -- 5-player Mythic
+}
+
+-- Fallback mappings (same as original logic)
+local FALLBACK_DIFF_LABELS = {
+    [1]  = "Normal",
+    [2]  = "Heroic",
+    [3]  = "Normal",
+    [4]  = "Normal",
+    [14] = "Normal",
+    [15] = "Heroic",
+    [16] = "Mythic",
+    [23] = "Mythic",
+}
+
+function LRLF_MapSavedDifficultyToLabel(difficultyID, isRaid)
+    if not difficultyID then
+        return nil
+    end
 
     if isRaid then
-        if difficultyID == 14 then
-            return "Normal"
-        elseif difficultyID == 15 then
-            return "Heroic"
-        elseif difficultyID == 16 then
-            return "Mythic"
+        local label = RAID_DIFF_LABELS[difficultyID]
+        if label then
+            return label
         end
     else
-        if difficultyID == 1 then
-            return "Normal"
-        elseif difficultyID == 2 then
-            return "Heroic"
-        elseif difficultyID == 23 then
-            return "Mythic"
+        local label = DUNGEON_DIFF_LABELS[difficultyID]
+        if label then
+            return label
         end
     end
 
-    -- Fallbacks, just in case
-    if difficultyID == 14 or difficultyID == 1 or difficultyID == 3 or difficultyID == 4 then
-        return "Normal"
-    elseif difficultyID == 15 or difficultyID == 2 then
-        return "Heroic"
-    elseif difficultyID == 16 or difficultyID == 23 then
-        return "Mythic"
-    end
-
-    return nil
+    -- Fallbacks, just in case (unchanged semantics)
+    return FALLBACK_DIFF_LABELS[difficultyID]
 end
 
 --------------------------------------------------
