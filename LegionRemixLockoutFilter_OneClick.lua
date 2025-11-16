@@ -62,7 +62,7 @@ local function GetRolesForCurrentSpec()
         return tank, heal, dps
     end
 
-    local role = GetSpecializationRole(specIndex) -- "TANK", "HEALER", "DAMAGER" or nil
+    local role = GetSpecializationRole(specIndex)  -- "TANK", "HEALER", "DAMAGER" or nil
     if role == "TANK" then
         tank = true
     elseif role == "HEALER" then

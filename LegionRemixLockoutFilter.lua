@@ -40,20 +40,6 @@ LRLF_OneClickSignupEnabled = (LRLF_OneClickSignupEnabled == true)
 LRLF_LastSearchWasFiltered = LRLF_LastSearchWasFiltered or false
 
 --------------------------------------------------
--- Helpers
---------------------------------------------------
-
--- Map LFGList category ID -> our internal "kind" label
-local function LRLF_GetKindFromCategory(categoryID)
-    if categoryID == 2 then
-        return "dungeon"
-    elseif categoryID == 3 then
-        return "raid"
-    end
-    return nil
-end
-
---------------------------------------------------
 -- Timerunner check
 --------------------------------------------------
 
@@ -121,7 +107,10 @@ function LRLF_TryHookLFG()
                 return
             end
 
-            local kind = LRLF_GetKindFromCategory(panel.categoryID)
+            local categoryID = panel.categoryID
+            local kind = (categoryID == 2 and "dungeon")
+                      or (categoryID == 3 and "raid")
+                      or nil
             if not kind then
                 return
             end
@@ -136,22 +125,13 @@ function LRLF_TryHookLFG()
             end
 
             -- Re-apply our filter to whatever Blizzard just gave us.
-            local beforeCount = #results
             LRLF_FilterResults(results, kind)
-            local afterCount = #results
-
             panel.totalResults = #results
 
             -- Update the visual list ONLY; do NOT trigger a new search.
             if type(LFGListSearchPanel_UpdateResults) == "function" then
                 LFGListSearchPanel_UpdateResults(panel)
             end
-
-            -- (Optional) Debug: comment out if noisy.
-            -- print(string.format(
-            --     "|cff00ff00[LegionRemixLockoutFilter]|r Hooked result update (%s): %d -> %d",
-            --     kind, beforeCount, afterCount
-            -- ))
         end)
     end
 end
@@ -180,8 +160,9 @@ function LRLF_UpdateVisibility()
 
     local searchPanel = LFGListFrame.SearchPanel
     local categoryID  = searchPanel and searchPanel.categoryID
-    local kind        = categoryID and LRLF_GetKindFromCategory(categoryID)
-    local isDungeonOrRaid = (kind ~= nil)
+    local isDungeon   = (categoryID == 2)
+    local isRaid      = (categoryID == 3)
+    local isDungeonOrRaid = isDungeon or isRaid
 
     local premadeSearchActive =
         searchPanel
@@ -192,6 +173,8 @@ function LRLF_UpdateVisibility()
         LRLF_HideAll()
         return
     end
+
+    local kind = isDungeon and "dungeon" or "raid"
 
     LRLF_AttachToPremade()
     if not LRLF_ToggleButton then
@@ -207,7 +190,7 @@ function LRLF_UpdateVisibility()
     else
         if LRLFFrame then
             LRLFFrame:Show()
-            LRLF_RefreshSidePanelText(kind or "raid")
+            LRLF_RefreshSidePanelText(kind)
         end
         if LRLF_ToggleButton then LRLF_ToggleButton:Hide() end
         if LRLF_FilterButtons.apply then LRLF_FilterButtons.apply:Show() end

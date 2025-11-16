@@ -165,84 +165,6 @@ local function LRLF_OnDifficultyCheckboxClick(self)
 end
 
 --------------------------------------------------
--- Shared row helpers (creation / reset)
---------------------------------------------------
-
-local function LRLF_EnsureRow(rowsByKind, index, parent)
-    local row = rowsByKind[index]
-    if not row then
-        row = CreateFrame("Frame", nil, parent)
-        row.diffChecks  = {}
-        row.diffLabels  = {}
-        row.activeDiffs = {}
-        rowsByKind[index] = row
-    end
-    row:Show()
-    row.diffStatus = row.diffStatus or {}
-    return row
-end
-
-local function LRLF_ResetRowDiffState(row)
-    if not row then return end
-    row.activeDiffs = row.activeDiffs or {}
-
-    -- Clear activeDiffs
-    for k in pairs(row.activeDiffs) do
-        row.activeDiffs[k] = nil
-    end
-
-    -- Clear per-diff status
-    if row.diffStatus then
-        for k in pairs(row.diffStatus) do
-            row.diffStatus[k] = nil
-        end
-    end
-end
-
-local function LRLF_HideAllDiffControls(row)
-    if not row then return end
-    row.activeDiffs = row.activeDiffs or {}
-
-    for _, diffName in ipairs(DIFF_ORDER) do
-        local cb    = row.diffChecks and row.diffChecks[diffName]
-        local label = row.diffLabels and row.diffLabels[diffName]
-
-        if cb then cb:Hide() end
-        if label then label:Hide() end
-
-        if row.diffStatus then
-            row.diffStatus[diffName] = nil
-        end
-        row.activeDiffs[diffName] = nil
-    end
-end
-
-local function LRLF_EnsureAllCheckbox(row)
-    if not row.allCheck then
-        local cbAll = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
-        cbAll:SetSize(18, 18)
-        cbAll:SetScript("OnClick", LRLF_OnAllCheckboxClick)
-        row.allCheck = cbAll
-    end
-
-    local allCheck = row.allCheck
-    allCheck:Show()
-    allCheck:ClearAllPoints()
-    allCheck:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
-
-    return allCheck
-end
-
-local function LRLF_EnsureNameText(row)
-    if not row.nameText then
-        local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        nameFS:SetJustifyH("LEFT")
-        row.nameText = nameFS
-    end
-    return row.nameText
-end
-
---------------------------------------------------
 -- Filter enabled/disabled visual
 --------------------------------------------------
 
@@ -318,7 +240,7 @@ local function LRLF_SetRowInteractive(row, enabled)
     end
 end
 
-local function LRLF_UpdateFilterEnabledVisualState()
+function LRLF_UpdateFilterEnabledVisualState()
     local enabled = (LRLF_FilterEnabled ~= false)
     LRLF_FilterEnabled = enabled
 
@@ -474,7 +396,7 @@ function LRLF_CreateSideWindow()
 
     local function CreateTopButton(key, label, xOffset)
         local btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        btn:SetSize(60, 24) -- slightly larger
+        btn:SetSize(60, 24)
         btn:SetPoint("TOPLEFT", f, "TOPLEFT", xOffset, -28)
         btn:SetText(label)
         f.topButtons[key] = btn
@@ -535,9 +457,8 @@ function LRLF_CreateSideWindow()
     text:SetJustifyV("TOP")
     text:SetText("")
 
-    -- Header for 'Currently unavailable' section (created once, positioned in refresh)
+    -- Header for 'Currently unavailable' section
     local unavailableHeader = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    unavailableHeader:SetText("|cffb0b0b0|cffffffff|r") -- placeholder; real text set in refresh
     unavailableHeader:SetJustifyH("CENTER")
     unavailableHeader:SetText("")
     unavailableHeader:Hide()
@@ -614,7 +535,6 @@ function LRLF_CreateFilterButtons()
     bg:SetFrameStrata("HIGH")
     bg:SetSize(32, ICON_SIZE * 2 + 10)
     bg:ClearAllPoints()
-    -- Anchor more in line with the body, not up by the close button
     bg:SetPoint("TOPLEFT", LRLFFrame, "TOPRIGHT", 0, -40)
     bg:SetPoint("BOTTOMLEFT", LRLFFrame, "TOPRIGHT", 0, -40 - (ICON_SIZE * 2 + 10))
 
@@ -914,6 +834,20 @@ function LRLF_RefreshSidePanelText(kind)
     local rowHeight  = 34
     local spacing    = 4
 
+    local function EnsureRow(index)
+        local row = rowsByKind[index]
+        if not row then
+            row = CreateFrame("Frame", nil, content)
+            row.diffChecks  = {}
+            row.diffLabels  = {}
+            row.activeDiffs = {}
+            rowsByKind[index] = row
+        end
+        row:Show()
+        row.diffStatus = row.diffStatus or {}
+        return row
+    end
+
     local rowIndex = 1
 
     -- Build rows for available entries (with difficulties)
@@ -924,26 +858,47 @@ function LRLF_RefreshSidePanelText(kind)
             local diffs     = info.difficulties
             local instState = filterKind[instName]
 
-            local row = LRLF_EnsureRow(rowsByKind, rowIndex, content)
-            row.kind             = kind
-            row.instanceName     = instName
+            local row = EnsureRow(rowIndex)
+            row.kind         = kind
+            row.instanceName = instName
             row.isAllUnavailable = false
 
             row:SetSize(content:GetWidth(), rowHeight)
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", 0, y)
 
-            local allCheck = LRLF_EnsureAllCheckbox(row)
-            local nameFS   = LRLF_EnsureNameText(row)
+            if not row.allCheck then
+                local cbAll = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+                cbAll:SetSize(18, 18)
+                cbAll:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
+                cbAll:SetScript("OnClick", LRLF_OnAllCheckboxClick)
+                row.allCheck = cbAll
+            else
+                row.allCheck:Show()
+                row.allCheck:ClearAllPoints()
+                row.allCheck:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
+            end
 
-            nameFS:ClearAllPoints()
-            nameFS:SetPoint("TOPLEFT", allCheck, "TOPRIGHT", 4, 0)
-            nameFS:SetText(instName)
-            nameFS:SetFontObject("GameFontNormal")
-            nameFS:SetTextColor(1, 0.82, 0)
+            if not row.nameText then
+                local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                nameFS:SetJustifyH("LEFT")
+                row.nameText = nameFS
+            end
+            row.nameText:ClearAllPoints()
+            row.nameText:SetPoint("TOPLEFT", row.allCheck, "TOPRIGHT", 4, 0)
+            row.nameText:SetText(instName)
+            row.nameText:SetFontObject("GameFontNormal")
+            row.nameText:SetTextColor(1, 0.82, 0)
 
-            -- Clear per-row diff state
-            LRLF_ResetRowDiffState(row)
+            -- Clear per-row state
+            for k in pairs(row.activeDiffs) do
+                row.activeDiffs[k] = nil
+            end
+            if row.diffStatus then
+                for k in pairs(row.diffStatus) do
+                    row.diffStatus[k] = nil
+                end
+            end
 
             -- Spread Normal / Heroic / Mythic more evenly across the row
             local diffXBase   = 10   -- starting X offset
@@ -1036,10 +991,10 @@ function LRLF_RefreshSidePanelText(kind)
                 end
             end
 
-            allCheck:Enable()
-            allCheck:SetAlpha(1.0)
-            nameFS:SetFontObject("GameFontNormal")
-            nameFS:SetTextColor(1, 0.82, 0)
+            row.allCheck:Enable()
+            row.allCheck:SetAlpha(1.0)
+            row.nameText:SetFontObject("GameFontNormal")
+            row.nameText:SetTextColor(1, 0.82, 0)
 
             LRLF_UpdateRowAllCheckbox(row, instState)
             LRLF_SetRowInteractive(row, LRLF_FilterEnabled)
@@ -1055,8 +1010,6 @@ function LRLF_RefreshSidePanelText(kind)
         if hasUnavailable then
             local headerFS = LRLFFrame.unavailableHeader
             headerFS:Show()
-            headerFS:SetText("|cffb0b0b0|cffffffff|r") -- reset before formatting
-            headerFS:SetText("|cffb0b0b0|cffffffff|r") -- dummy to force height
             headerFS:SetText("Currently unavailable")
             headerFS:SetFontObject("GameFontHighlightSmall")
             headerFS:SetTextColor(0.7, 0.7, 0.7)
@@ -1082,7 +1035,7 @@ function LRLF_RefreshSidePanelText(kind)
                 local instName  = info.name or entry.name
                 local instState = filterKind[instName]
 
-                local row = LRLF_EnsureRow(rowsByKind, rowIndex, content)
+                local row = EnsureRow(rowIndex)
                 row.kind             = kind
                 row.instanceName     = instName
                 row.isAllUnavailable = true
@@ -1091,20 +1044,41 @@ function LRLF_RefreshSidePanelText(kind)
                 row:ClearAllPoints()
                 row:SetPoint("TOPLEFT", 0, y)
 
-                local allCheck = LRLF_EnsureAllCheckbox(row)
-                allCheck:SetChecked(false)
-                allCheck:Disable()
-                allCheck:SetAlpha(0.4)
+                if not row.allCheck then
+                    local cbAll = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+                    cbAll:SetSize(18, 18)
+                    cbAll:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
+                    cbAll:SetScript("OnClick", LRLF_OnAllCheckboxClick)
+                    row.allCheck = cbAll
+                end
 
-                local nameFS = LRLF_EnsureNameText(row)
-                nameFS:ClearAllPoints()
-                nameFS:SetPoint("TOPLEFT", allCheck, "TOPRIGHT", 4, 0)
-                nameFS:SetText(instName)
-                nameFS:SetFontObject("GameFontDisable")
-                nameFS:SetTextColor(0.5, 0.5, 0.5)
+                -- For completely unavailable instances, All checkbox is disabled
+                row.allCheck:SetChecked(false)
+                row.allCheck:Disable()
+                row.allCheck:SetAlpha(0.4)
+
+                if not row.nameText then
+                    local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                    nameFS:SetJustifyH("LEFT")
+                    row.nameText = nameFS
+                end
+                row.nameText:ClearAllPoints()
+                row.nameText:SetPoint("TOPLEFT", row.allCheck, "TOPRIGHT", 4, 0)
+                row.nameText:SetText(instName)
+                row.nameText:SetFontObject("GameFontDisable")
+                row.nameText:SetTextColor(0.5, 0.5, 0.5)
 
                 -- Hide any difficulty controls for this row
-                LRLF_HideAllDiffControls(row)
+                for _, diffName in ipairs(DIFF_ORDER) do
+                    local cb    = row.diffChecks[diffName]
+                    local label = row.diffLabels[diffName]
+                    if cb then cb:Hide() end
+                    if label then label:Hide() end
+                    if row.diffStatus then
+                        row.diffStatus[diffName] = nil
+                    end
+                    row.activeDiffs[diffName] = nil
+                end
 
                 LRLF_SetRowInteractive(row, LRLF_FilterEnabled)
 
