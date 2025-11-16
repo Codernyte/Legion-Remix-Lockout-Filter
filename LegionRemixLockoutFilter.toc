@@ -8,4 +8,5 @@ LRLF_Config.lua
 LegionRemixLockoutFilter_LFG.lua
 LegionRemixLockoutFilter_Filter.lua
 LegionRemixLockoutFilter_UI.lua
+LegionRemixLockoutFilter_OneClick.lua
 LegionRemixLockoutFilter.lua

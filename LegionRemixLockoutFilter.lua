@@ -22,6 +22,7 @@ end
 LRLF_UserCollapsed         = LRLF_UserCollapsed         or false
 LRLF_ToggleButton          = LRLF_ToggleButton          or nil
 LRLF_LFGHooksDone          = LRLF_LFGHooksDone          or false
+LRLF_ResultListHookDone    = LRLF_ResultListHookDone    or false
 
 LRLF_FilterState           = LRLF_FilterState           or { raid = {}, dungeon = {} }
 LRLF_SystemSelection       = LRLF_SystemSelection       or { raid = {}, dungeon = {} }
@@ -35,11 +36,8 @@ LRLF_SearchButton          = LRLF_SearchButton          or nil
 -- One-click signup toggle (settings icon controls this elsewhere)
 LRLF_OneClickSignupEnabled = (LRLF_OneClickSignupEnabled == true)
 
--- Kept for possible future use, but NOT used to gate filtering anymore
+-- Kept for possible future use with search button
 LRLF_LastSearchWasFiltered = LRLF_LastSearchWasFiltered or false
-
--- Internal: ensure we only hook the search entry once
-LRLF_SearchEntryHookDone   = LRLF_SearchEntryHookDone   or false
 
 --------------------------------------------------
 -- Timerunner check
@@ -69,128 +67,7 @@ function LRLF_HideAll()
 end
 
 --------------------------------------------------
--- One-click signup helpers
---------------------------------------------------
-
--- Determine all roles this class/spec can reasonably sign up as
-local function LRLF_GetAllEligibleRoles()
-    local canTank, canHeal, canDPS = false, false, false
-
-    if GetNumSpecializations and GetSpecializationInfo then
-        local num = GetNumSpecializations()
-        for i = 1, num do
-            local _, _, _, _, role = GetSpecializationInfo(i)
-            if role == "TANK" then
-                canTank = true
-            elseif role == "HEALER" then
-                canHeal = true
-            elseif role == "DAMAGER" then
-                canDPS = true
-            end
-        end
-    end
-
-    -- Fallback: if nothing detected, assume DPS at least.
-    if not (canTank or canHeal or canDPS) then
-        canDPS = true
-    end
-
-    return canTank, canHeal, canDPS
-end
-
--- Core handler for one-click signup logic.
--- Called from our hook on LFGListSearchEntry_OnClick.
-local function LRLF_HandleSearchEntryClick_OneClick(button, mouseButton)
-    -- Hard gating
-    if not LRLF_IsTimerunner() then
-        return
-    end
-    if not LRLF_OneClickSignupEnabled then
-        return
-    end
-    if not button or not button.resultID then
-        return
-    end
-    if mouseButton and mouseButton ~= "LeftButton" then
-        return
-    end
-    if not C_LFGList
-        or not C_LFGList.ApplyToGroup
-        or not C_LFGList.GetSearchResultInfo
-    then
-        return
-    end
-    if not LFGListFrame or not LFGListFrame.SearchPanel then
-        return
-    end
-
-    local searchPanel = LFGListFrame.SearchPanel
-    if not searchPanel:IsShown() then
-        return
-    end
-
-    local categoryID = searchPanel.categoryID
-    local isDungeon  = (categoryID == 2)
-    local isRaid     = (categoryID == 3)
-    if not (isDungeon or isRaid) then
-        return
-    end
-
-    --------------------------------------------------
-    -- Modifier behavior:
-    --   * Left-click: one-click signup with CURRENT Blizzard role selection.
-    --   * SHIFT + Left-click: one-click signup with ALL ELIGIBLE ROLES.
-    --
-    --   (Right-click / other buttons: Blizzard behavior only.)
-    --------------------------------------------------
-    local shiftDown = IsShiftKeyDown and IsShiftKeyDown()
-
-    local resultID     = button.resultID
-    local allRolesMode = false
-
-    if shiftDown then
-        allRolesMode = true
-    end
-
-    -- Determine roles to apply with
-    local tank, heal, dps
-
-    if allRolesMode then
-        -- SHIFT: all roles this class/spec can perform
-        tank, heal, dps = LRLF_GetAllEligibleRoles()
-    else
-        -- Plain left-click: use Blizzard's current LFG role selection if exposed
-        if C_LFGList.GetRoles then
-            tank, heal, dps = C_LFGList.GetRoles()
-        elseif GetLFGRoles then
-            local lfgTank, lfgHeal, lfgDps = GetLFGRoles()
-            tank, heal, dps = lfgTank, lfgHeal, lfgDps
-        else
-            -- Fallback: use current assigned role
-            local role = UnitGroupRolesAssigned and UnitGroupRolesAssigned("player") or "NONE"
-            tank = (role == "TANK")
-            heal = (role == "HEALER")
-            dps  = (role == "DAMAGER")
-        end
-    end
-
-    -- Safety: ensure at least one role is true so we don't send a blank apply
-    if not (tank or heal or dps) then
-        -- Fallback: DPS only
-        tank, heal, dps = false, false, true
-    end
-
-    C_LFGList.ApplyToGroup(resultID, "", false, tank, heal, dps)
-end
-
--- Hook that runs after Blizzard's click handler.
-local function LRLF_SearchEntry_OnClick_Hook(button, mouseButton)
-    -- Blizzard already did its default behavior; we optionally do our one-click apply.
-    LRLF_HandleSearchEntryClick_OneClick(button, mouseButton)
-end
-
---------------------------------------------------
--- Hook LFGListFrame show/hide and search entry click
+-- LFG hooks for show/hide & result-list filtering
 --------------------------------------------------
 
 function LRLF_TryHookLFG()
@@ -204,10 +81,67 @@ function LRLF_TryHookLFG()
         LRLF_LFGHooksDone = true
     end
 
-    -- Hook the entry click once (for one-click signup)
-    if not LRLF_SearchEntryHookDone and type(LFGListSearchEntry_OnClick) == "function" then
-        hooksecurefunc("LFGListSearchEntry_OnClick", LRLF_SearchEntry_OnClick_Hook)
-        LRLF_SearchEntryHookDone = true
+    -- Hook the Blizzard results updater so that ANY time Blizzard
+    -- refreshes the results (including after a signup), we re-apply
+    -- our lockout filtering *in place* without triggering a new search.
+    if not LRLF_ResultListHookDone
+        and type(LFGListSearchPanel_UpdateResultList) == "function"
+    then
+        LRLF_ResultListHookDone = true
+
+        hooksecurefunc("LFGListSearchPanel_UpdateResultList", function(panel)
+            -- Only operate:
+            --  * On Timerunner characters
+            --  * When our filter is enabled
+            --  * On the main LFG search panel for raids/dungeons
+            if not LRLF_IsTimerunner or not LRLF_IsTimerunner() then
+                return
+            end
+            if not LRLF_FilterEnabled then
+                return
+            end
+            if not LFGListFrame or not LFGListFrame.SearchPanel then
+                return
+            end
+            if panel ~= LFGListFrame.SearchPanel then
+                return
+            end
+
+            local categoryID = panel.categoryID
+            local kind = (categoryID == 2 and "dungeon")
+                      or (categoryID == 3 and "raid")
+                      or nil
+            if not kind then
+                return
+            end
+
+            local results = panel.results
+            if not results or type(results) ~= "table" then
+                return
+            end
+
+            if type(LRLF_FilterResults) ~= "function" then
+                return
+            end
+
+            -- Re-apply our filter to whatever Blizzard just gave us.
+            local beforeCount = #results
+            LRLF_FilterResults(results, kind)
+            local afterCount = #results
+
+            panel.totalResults = #results
+
+            -- Update the visual list ONLY; do NOT trigger a new search.
+            if type(LFGListSearchPanel_UpdateResults) == "function" then
+                LFGListSearchPanel_UpdateResults(panel)
+            end
+
+            -- (Optional) Debug: comment out if noisy.
+            -- print(string.format(
+            --     "|cff00ff00[LegionRemixLockoutFilter]|r Hooked result update (%s): %d -> %d",
+            --     kind, beforeCount, afterCount
+            -- ))
+        end)
     end
 end
 
@@ -317,59 +251,10 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         end
 
     elseif event == "LFG_LIST_SEARCH_RESULTS_RECEIVED" then
-        -- Only affect results if:
-        --  * This is a Timerunner
-        --  * The master filter toggle (spyglass) is enabled
-        if not LRLF_IsTimerunner() then
-            return
-        end
-        if not LRLF_FilterEnabled then
-            return
-        end
-
-        if not LFGListFrame or not LFGListFrame.SearchPanel then
-            return
-        end
-
-        local searchPanel = LFGListFrame.SearchPanel
-        if not searchPanel:IsShown() then
-            return
-        end
-
-        local categoryID = searchPanel.categoryID
-        local kind = (categoryID == 2 and "dungeon")
-                  or (categoryID == 3 and "raid")
-                  or nil
-        if not kind then
-            return
-        end
-
-        local results = searchPanel.results
-        if not results or type(results) ~= "table" then
-            return
-        end
-
-        -- Call the global wrapper defined in LegionRemixLockoutFilter_Filter.lua
-        if type(LRLF_FilterResults) ~= "function" then
-            print("|cff00ff00[LegionRemixLockoutFilter]|r Filter function missing; skipping filtering.")
-            return
-        end
-
-        local beforeCount = #results
-        LRLF_FilterResults(results, kind)
-        local afterCount = #results
-
-        -- Debug instrumentation: see whether filtering is actually happening
-        print(string.format(
-            "|cff00ff00[LegionRemixLockoutFilter]|r Filtered %s results: %d -> %d",
-            kind, beforeCount, afterCount
-        ))
-
-        searchPanel.totalResults = #results
-
-        -- IMPORTANT: Just update the visual list from the *current* results table.
-        if type(LFGListSearchPanel_UpdateResults) == "function" then
-            LFGListSearchPanel_UpdateResults(searchPanel)
-        end
+        -- We now rely on the LFGListSearchPanel_UpdateResultList hook
+        -- to re-apply filtering whenever Blizzard updates results.
+        -- No additional filtering is needed here, and we never trigger
+        -- a new search from sign-ups.
+        return
     end
 end)
