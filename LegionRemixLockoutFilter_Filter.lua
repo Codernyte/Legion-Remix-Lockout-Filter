@@ -10,17 +10,24 @@ ADDON_TABLE.Filter = LRLF_Filter
 -- Local helpers
 --------------------------------------------------
 
--- Returns true if any difficulty is selected for any instance (generic)
-local function HasAnySelectedDifficulty(filterKind)
+-- Returns true if any difficulty is selected for any instance.
+-- If modeKey is provided, only that difficulty key is considered.
+local function HasAnySelectedDifficulty(filterKind, modeKey)
     if not filterKind then
         return false
     end
 
     for _, instState in pairs(filterKind) do
         if type(instState) == "table" then
-            for _, v in pairs(instState) do
-                if v then
+            if modeKey then
+                if instState[modeKey] then
                     return true
+                end
+            else
+                for _, v in pairs(instState) do
+                    if v then
+                        return true
+                    end
                 end
             end
         end
@@ -154,23 +161,8 @@ function LRLF_Filter.FilterResults(results, kind)
     --------------------------------------------------
     -- Check if at least one selection exists
     --------------------------------------------------
-    local anySelected
-
-    if kind == "dungeon" then
-        -- Dungeons: use per-mode selection (Mythic vs Mythic+)
-        local modeKey = GetDungeonModeKey()  -- "Mythic" or "MythicKeystone"
-
-        anySelected = false
-        for _, instState in pairs(filterKind) do
-            if type(instState) == "table" and instState[modeKey] then
-                anySelected = true
-                break
-            end
-        end
-    else
-        -- Raids: generic "any diff" selection
-        anySelected = HasAnySelectedDifficulty(filterKind)
-    end
+    local modeKey = (kind == "dungeon") and GetDungeonModeKey() or nil
+    local anySelected = HasAnySelectedDifficulty(filterKind, modeKey)
 
     -- If nothing selected, clear all results
     if not anySelected then

@@ -5,18 +5,27 @@
 
 local ADDON_NAME, ADDON_TABLE = ...
 
+local RAID_KIND = "raid"
+
 --------------------------------------------------
--- Exclusive selection helpers (RAID)
+-- Shared raid-state helpers
 --------------------------------------------------
 
-local function LRLF_ExclusiveClearAll(kind)
-    if not LRLF_FilterState or not kind then return end
+local function EnsureRaidKindState()
+    LRLF_FilterState[RAID_KIND]     = LRLF_FilterState[RAID_KIND]     or {}
+    LRLF_SystemSelection[RAID_KIND] = LRLF_SystemSelection[RAID_KIND] or {}
+    return LRLF_FilterState[RAID_KIND], LRLF_SystemSelection[RAID_KIND]
+end
 
-    LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
-    LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
+local function EnsureRaidInstanceState(instName)
+    local filterKind, sysKind = EnsureRaidKindState()
+    filterKind[instName] = filterKind[instName] or {}
+    sysKind[instName]    = sysKind[instName]    or {}
+    return filterKind, sysKind, filterKind[instName], sysKind[instName]
+end
 
-    local filterKind = LRLF_FilterState[kind]
-    local sysKind    = LRLF_SystemSelection[kind]
+local function LRLF_ExclusiveClearAll()
+    local filterKind, sysKind = EnsureRaidKindState()
 
     for instName, instState in pairs(filterKind) do
         if type(instState) == "table" then
@@ -34,27 +43,65 @@ local function LRLF_ExclusiveClearAll(kind)
     end
 end
 
+--------------------------------------------------
+-- Name-click behaviors (instance-level)
+--------------------------------------------------
+
+-- Left-click on raid instance name: toggle ready diffs for that instance
+-- If any ready diff is selected -> clear all diffs for that instance.
+-- If none are selected -> select only ready (non-locked, non-unavailable) diffs.
+local function LRLF_SelectRaidInstanceReadyDiffs(row)
+    if not row or row.kind ~= RAID_KIND or not row.instanceName then return end
+
+    local instName                = row.instanceName
+    local _, _, instState, sysInst = EnsureRaidInstanceState(instName)
+
+    -- First, see if any ready diff is currently selected
+    local hasSelectedReady = false
+    for _, diffName in ipairs(DIFF_ORDER) do
+        local status  = row.diffStatus and row.diffStatus[diffName]
+        local isReady = status and status.isReady
+        if isReady and instState[diffName] then
+            hasSelectedReady = true
+            break
+        end
+    end
+
+    if hasSelectedReady then
+        -- Toggle OFF: clear all diffs for this instance
+        for _, diffName in ipairs(DIFF_ORDER) do
+            instState[diffName] = false
+            sysInst[diffName]   = false
+        end
+    else
+        -- Toggle ON: select only ready, non-locked, non-unavailable diffs
+        for _, diffName in ipairs(DIFF_ORDER) do
+            local status        = row.diffStatus and row.diffStatus[diffName]
+            local isReady       = status and status.isReady
+            local isLocked      = status and status.isLocked
+            local isUnavailable = status and status.isUnavailable
+
+            if isReady and not isLocked and not isUnavailable then
+                instState[diffName] = true
+            else
+                instState[diffName] = false
+            end
+
+            sysInst[diffName] = false
+        end
+    end
+
+    LRLF_RefreshSidePanelText(RAID_KIND)
+end
+
 -- Right-click on raid instance name: exclusive select all *ready* difficulties
--- Note: locked diffs will NOT be auto-selected here.
+-- (Clears all other raids first; avoids locked/unavailable)
 function LRLF_ExclusiveRaidInstanceAllDiffs(row)
-    if not row or row.kind ~= "raid" or not row.instanceName then return end
+    if not row or row.kind ~= RAID_KIND or not row.instanceName then return end
 
-    local kind     = "raid"
-    local instName = row.instanceName
-
-    LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
-    LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
-
-    local filterKind = LRLF_FilterState[kind]
-    local sysKind    = LRLF_SystemSelection[kind]
-
-    LRLF_ExclusiveClearAll(kind)
-
-    filterKind[instName] = filterKind[instName] or {}
-    sysKind[instName]    = sysKind[instName]    or {}
-
-    local instState = filterKind[instName]
-    local sysInst   = sysKind[instName]
+    local instName                = row.instanceName
+    LRLF_ExclusiveClearAll()
+    local _, _, instState, sysInst = EnsureRaidInstanceState(instName)
 
     for _, diffName in ipairs(DIFF_ORDER) do
         local status  = row.diffStatus and row.diffStatus[diffName]
@@ -67,34 +114,22 @@ function LRLF_ExclusiveRaidInstanceAllDiffs(row)
         end
     end
 
-    LRLF_RefreshSidePanelText("raid")
+    LRLF_RefreshSidePanelText(RAID_KIND)
 end
 
 function LRLF_ExclusiveRaidDifficulty(row, diffName)
-    if not row or row.kind ~= "raid" or not row.instanceName or not diffName then
+    if not row or row.kind ~= RAID_KIND or not row.instanceName or not diffName then
         return
     end
 
-    local kind     = "raid"
-    local instName = row.instanceName
+    LRLF_ExclusiveClearAll()
 
-    LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
-    LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
-
-    local filterKind = LRLF_FilterState[kind]
-    local sysKind    = LRLF_SystemSelection[kind]
-
-    LRLF_ExclusiveClearAll(kind)
-
-    filterKind[instName] = filterKind[instName] or {}
-    sysKind[instName]    = sysKind[instName]    or {}
-
-    local instState = filterKind[instName]
-    local sysInst   = sysKind[instName]
+    local instName                = row.instanceName
+    local _, _, instState, sysInst = EnsureRaidInstanceState(instName)
 
     local status = row.diffStatus and row.diffStatus[diffName]
     if status and status.isUnavailable then
-        LRLF_RefreshSidePanelText("raid")
+        LRLF_RefreshSidePanelText(RAID_KIND)
         return
     end
 
@@ -103,7 +138,7 @@ function LRLF_ExclusiveRaidDifficulty(row, diffName)
         sysInst[dName]   = false
     end
 
-    LRLF_RefreshSidePanelText("raid")
+    LRLF_RefreshSidePanelText(RAID_KIND)
 end
 
 --------------------------------------------------
@@ -114,70 +149,63 @@ local function LRLF_OnAllCheckboxClick(self)
     local row = self:GetParent()
     if not row or not row.instanceName or not row.kind then return end
 
-    local instName = row.instanceName
-    local kind     = row.kind
-
-    LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
-    LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
-
-    local filterKind = LRLF_FilterState[kind]
-    local sysKind    = LRLF_SystemSelection[kind]
-
-    filterKind[instName] = filterKind[instName] or {}
-    sysKind[instName]    = sysKind[instName]    or {}
-
-    local instState = filterKind[instName]
-    local sysInst   = sysKind[instName]
+    local instName                = row.instanceName
+    local _, _, instState, sysInst = EnsureRaidInstanceState(instName)
 
     local checked = self:GetChecked() and true or false
 
-    if row.kind == "raid" and row.diffChecks then
+    if row.kind == RAID_KIND and row.diffChecks then
         for _, diffName in ipairs(DIFF_ORDER) do
-            local cb = row.diffChecks[diffName]
+            local cb     = row.diffChecks[diffName]
+            local status = row.diffStatus and row.diffStatus[diffName]
+
             if cb and cb:IsEnabled() then
-                cb:SetChecked(checked)
-                instState[diffName] = checked
-                sysInst[diffName]   = false
+                if checked then
+                    -- Only auto-select ready (not locked / unavailable)
+                    local isReady       = status and status.isReady
+                    local isLocked      = status and status.isLocked
+                    local isUnavailable = status and status.isUnavailable
+
+                    if isReady and not isLocked and not isUnavailable then
+                        cb:SetChecked(true)
+                        instState[diffName] = true
+                    else
+                        cb:SetChecked(false)
+                        instState[diffName] = false
+                    end
+                else
+                    -- Unchecking "All" -> clear everything that's enabled
+                    cb:SetChecked(false)
+                    instState[diffName] = false
+                end
+                sysInst[diffName] = false
             end
         end
     else
         -- dungeons handled in dungeon file
     end
 
-    local diffKeys = (row.kind == "raid") and DIFF_ORDER or nil
-    LRLF_UpdateRowAllCheckbox(row, instState, diffKeys)
+    LRLF_UpdateRowAllCheckbox(row, instState, DIFF_ORDER)
 end
 
 local function LRLF_OnDifficultyCheckboxClick(self)
     local row = self.row
     if not row or not row.instanceName or not row.kind or not self.diffName then return end
 
-    local instName = row.instanceName
-    local kind     = row.kind
+    local instName                = row.instanceName
+    local _, _, instState, sysInst = EnsureRaidInstanceState(instName)
+
     local diffName = self.diffName
+    local checked  = self:GetChecked() and true or false
 
-    LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
-    LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
-
-    local filterKind = LRLF_FilterState[kind]
-    local sysKind    = LRLF_SystemSelection[kind]
-
-    filterKind[instName] = filterKind[instName] or {}
-    sysKind[instName]    = sysKind[instName]    or {}
-
-    local instState = filterKind[instName]
-    local sysInst   = sysKind[instName]
-
-    local checked = self:GetChecked() and true or false
     instState[diffName] = checked
     sysInst[diffName]   = false
 
-    local diffKeys = (row.kind == "raid") and DIFF_ORDER or nil
-    LRLF_UpdateRowAllCheckbox(row, instState, diffKeys)
+    LRLF_UpdateRowAllCheckbox(row, instState, DIFF_ORDER)
 end
 
 local function LRLF_DifficultyCheckbox_OnClick(self, button)
-    if button == "RightButton" and self.row and self.row.kind == "raid" then
+    if button == "RightButton" and self.row and self.row.kind == RAID_KIND then
         LRLF_ExclusiveRaidDifficulty(self.row, self.diffName)
     else
         LRLF_OnDifficultyCheckboxClick(self)
@@ -189,7 +217,7 @@ end
 --------------------------------------------------
 
 function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
-    kind = kind or "raid"
+    kind = kind or RAID_KIND
     LRLF_Rows[kind] = LRLF_Rows[kind] or {}
     local rowsByKind = LRLF_Rows[kind]
 
@@ -213,11 +241,7 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
         return row
     end
 
-    LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
-    LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
-
-    local filterKind = LRLF_FilterState[kind]
-    local sysKind    = LRLF_SystemSelection[kind]
+    local filterKind, sysKind = EnsureRaidKindState()
 
     local availableEntries   = {}
     local unavailableEntries = {}
@@ -290,7 +314,7 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
             local instState = filterKind[instName]
 
             local row = EnsureRaidRow(rowIndex)
-            row.kind             = "raid"
+            row.kind             = RAID_KIND
             row.instanceName     = instName
             row.isAllUnavailable = false
 
@@ -298,6 +322,7 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", 0, y)
 
+            -- "All" checkbox
             if not row.allCheck then
                 local cbAll = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
                 cbAll:SetSize(18, 18)
@@ -310,6 +335,7 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
                 row.allCheck:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
             end
 
+            -- Instance name text
             if not row.nameText then
                 local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 nameFS:SetJustifyH("LEFT")
@@ -318,17 +344,20 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
             row.nameText:ClearAllPoints()
             row.nameText:SetPoint("TOPLEFT", row.allCheck, "TOPRIGHT", 4, 0)
             row.nameText:SetText(instName)
-            row.nameText:SetFontObject("GameFontNormal")
-            row.nameText:SetTextColor(1, 0.82, 0)
-
             row.nameText.row = row
             row.nameText:EnableMouse(true)
-            row.nameText:SetScript("OnMouseUp", function(self, button)
-                if button == "RightButton" and self.row and self.row.kind == "raid" then
+            row.nameText:SetScript("OnMouseDown", function(self, button)
+                if not self.row or self.row.kind ~= RAID_KIND then
+                    return
+                end
+                if button == "RightButton" then
                     LRLF_ExclusiveRaidInstanceAllDiffs(self.row)
+                else
+                    LRLF_SelectRaidInstanceReadyDiffs(self.row)
                 end
             end)
 
+            -- Clear previous diff status
             if row.diffStatus then
                 for k in pairs(row.diffStatus) do
                     row.diffStatus[k] = nil
@@ -369,7 +398,7 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
                         label:SetScript("OnLeave", LRLF_Diff_OnLeave)
                         label:SetScript("OnMouseDown", function(self, button)
                             if not cb:IsEnabled() then return end
-                            if button == "RightButton" and row.kind == "raid" then
+                            if button == "RightButton" and row.kind == RAID_KIND then
                                 LRLF_ExclusiveRaidDifficulty(row, diffName)
                             else
                                 cb:Click()
@@ -385,7 +414,6 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
                     cb:SetPoint("TOPLEFT", row, "TOPLEFT", x, diffY)
                     label:ClearAllPoints()
                     label:SetPoint("LEFT", cb, "RIGHT", 4, 0)
-
                     label:SetText(DIFF_SHORTTEXT[diffName] or diffName)
 
                     local isReady       = (d.available and not d.hasLockout)
@@ -398,23 +426,8 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
 
                     if isUnavailable then
                         cb:SetChecked(false)
-                        cb:Disable()
-                        cb:SetAlpha(0.4)
-                        label:SetFontObject("GameFontDisable")
-                        label:SetTextColor(0.5, 0.5, 0.5)
                     else
-                        cb:Enable()
-                        cb:SetAlpha(1.0)
                         cb:SetChecked(selected and true or false)
-
-                        label:SetFontObject("GameFontHighlightSmall")
-                        if isLocked then
-                            label:SetTextColor(1.0, 0.2, 0.2)
-                        elseif isReady then
-                            label:SetTextColor(0.0, 1.0, 0.0)
-                        else
-                            label:SetTextColor(0.7, 0.7, 0.7)
-                        end
                     end
                 else
                     if cb then cb:Hide() end
@@ -436,6 +449,7 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
         end
     end
 
+    -- "Currently unavailable" section
     local hasUnavailable = #unavailableEntries > 0
     if LRLFFrame.unavailableHeader then
         if hasUnavailable then
@@ -465,7 +479,7 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
                 local instName = info.name or entry.name
 
                 local row = EnsureRaidRow(rowIndex)
-                row.kind             = "raid"
+                row.kind             = RAID_KIND
                 row.instanceName     = instName
                 row.isAllUnavailable = true
 
@@ -493,8 +507,6 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
                 row.nameText:ClearAllPoints()
                 row.nameText:SetPoint("TOPLEFT", row.allCheck, "TOPRIGHT", 4, 0)
                 row.nameText:SetText(instName)
-                row.nameText:SetFontObject("GameFontDisable")
-                row.nameText:SetTextColor(0.5, 0.5, 0.5)
                 row.nameText:EnableMouse(false)
 
                 for _, diffName in ipairs(DIFF_ORDER) do
@@ -515,6 +527,7 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
         end
     end
 
+    -- Hide leftover rows
     for idx = rowIndex, #rowsByKind do
         if rowsByKind[idx] then
             rowsByKind[idx]:Hide()

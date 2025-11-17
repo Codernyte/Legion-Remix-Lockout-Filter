@@ -8,6 +8,24 @@ LRLF_LFG = ADDON_TABLE.LFG or {}
 ADDON_TABLE.LFG = LRLF_LFG
 
 --------------------------------------------------
+-- Shared EJ helper: select Legion tier
+--------------------------------------------------
+
+local function LRLF_SelectLegionTier()
+    if not EJ_GetInstanceByIndex or not EJ_SelectTier or not EJ_GetNumTiers or not EJ_GetTierInfo then
+        return false, "Encounter Journal API not available."
+    end
+
+    local legionTierIndex, tierErr = LRLF_FindLegionTierIndex()
+    if not legionTierIndex then
+        return false, tierErr or "Could not find a Legion tier in the Encounter Journal."
+    end
+
+    EJ_SelectTier(legionTierIndex)
+    return true, nil
+end
+
+--------------------------------------------------
 -- Apply saved-instance lockouts onto a difficulty info map
 --------------------------------------------------
 
@@ -65,16 +83,10 @@ end
 function LRLF_GetLegionRaids()
     local raids = {}
 
-    if not EJ_GetInstanceByIndex or not EJ_SelectTier or not EJ_GetNumTiers or not EJ_GetTierInfo then
-        return raids, "Encounter Journal API not available."
+    local ok, err = LRLF_SelectLegionTier()
+    if not ok then
+        return raids, err
     end
-
-    local legionTierIndex, tierErr = LRLF_FindLegionTierIndex()
-    if not legionTierIndex then
-        return raids, tierErr or "Could not find a Legion tier in the Encounter Journal."
-    end
-
-    EJ_SelectTier(legionTierIndex)
 
     local excludeByName = {
         ["Broken Isles"]    = true,
@@ -109,16 +121,10 @@ end
 function LRLF_GetLegionDungeons()
     local dungeons = {}
 
-    if not EJ_GetInstanceByIndex or not EJ_SelectTier or not EJ_GetNumTiers or not EJ_GetTierInfo then
-        return dungeons, "Encounter Journal API not available."
+    local ok, err = LRLF_SelectLegionTier()
+    if not ok then
+        return dungeons, err
     end
-
-    local legionTierIndex, tierErr = LRLF_FindLegionTierIndex()
-    if not legionTierIndex then
-        return dungeons, tierErr or "Could not find a Legion tier in the Encounter Journal."
-    end
-
-    EJ_SelectTier(legionTierIndex)
 
     local index = 1
     while true do
@@ -437,10 +443,5 @@ end
 -- Namespace wrappers used by UI
 --------------------------------------------------
 
-function LRLF_LFG.BuildRaidDifficultyInfo()
-    return LRLF_BuildRaidDifficultyInfo()
-end
-
-function LRLF_LFG.BuildDungeonDifficultyInfo()
-    return LRLF_BuildDungeonDifficultyInfo()
-end
+LRLF_LFG.BuildRaidDifficultyInfo    = LRLF_BuildRaidDifficultyInfo
+LRLF_LFG.BuildDungeonDifficultyInfo = LRLF_BuildDungeonDifficultyInfo

@@ -9,8 +9,8 @@ local addonName = ...
 -- State
 ----------------------------------------------------------------------
 
-local clickHooked      = false
-local dialogHooked     = false
+local clickHooked  = false
+local dialogHooked = false
 
 -- autoConfirmMode:
 --   0 = no auto-confirm (left click)
@@ -27,20 +27,13 @@ local autoConfirmMode = AUTO_MODE_NONE
 ----------------------------------------------------------------------
 
 local function IsTimerunnerAndOneClickEnabled()
-    if not LRLF_IsTimerunner or not LRLF_IsTimerunner() then
-        return false
-    end
-    if not LRLF_OneClickSignupEnabled then
-        return false
-    end
-    return true
+    return LRLF_IsTimerunner
+       and LRLF_IsTimerunner()
+       and LRLF_OneClickSignupEnabled
 end
 
 local function GetSearchPanel()
-    if not LFGListFrame then
-        return nil
-    end
-    return LFGListFrame.SearchPanel
+    return (LFGListFrame and LFGListFrame.SearchPanel) or nil
 end
 
 ----------------------------------------------------------------------
@@ -59,7 +52,7 @@ local function GetRolesForCurrentSpec()
         return tank, heal, dps
     end
 
-    local role = GetSpecializationRole(specIndex)  -- "TANK", "HEALER", "DAMAGER" or nil
+    local role = GetSpecializationRole(specIndex) -- "TANK", "HEALER", "DAMAGER" or nil
     if role == "TANK" then
         tank = true
     elseif role == "HEALER" then
@@ -201,7 +194,6 @@ end
 local function HandleApplicationDialogOnShow(self)
     -- If this was a plain left-click, we don't auto-confirm.
     if autoConfirmMode == AUTO_MODE_NONE then
-        autoConfirmMode = AUTO_MODE_NONE
         return
     end
 
