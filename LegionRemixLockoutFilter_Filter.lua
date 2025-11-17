@@ -10,7 +10,7 @@ ADDON_TABLE.Filter = LRLF_Filter
 -- Local helpers
 --------------------------------------------------
 
--- Returns true if any difficulty is selected for any instance
+-- Returns true if any difficulty is selected for any instance (generic)
 local function HasAnySelectedDifficulty(filterKind)
     if not filterKind then
         return false
@@ -27,6 +27,26 @@ local function HasAnySelectedDifficulty(filterKind)
     end
 
     return false
+end
+
+-- Normalize dungeon mode for filtering:
+--   "Mythic"         -> "Mythic"
+--   "MYTHIC"         -> "Mythic"
+--   "KEYSTONE"       -> "MythicKeystone"
+--   "MythicKeystone" -> "MythicKeystone"
+--   "Mythic Keystone"-> "MythicKeystone"
+local function GetDungeonModeKey()
+    local mode = LRLF_DungeonMode
+
+    if mode == "KEYSTONE"
+        or mode == "MythicKeystone"
+        or mode == "Mythic Keystone"
+    then
+        return "MythicKeystone"
+    end
+
+    -- Default anything else to plain Mythic
+    return "Mythic"
 end
 
 -- Build a normalized index of Legion instances for this kind
@@ -72,7 +92,7 @@ local function ResultMatchesSelection(resultID, kind, filterKind, instances)
     --------------------------------------------------
     local activityIDs = info.activityIDs
     if not activityIDs or type(activityIDs) ~= "table" or #activityIDs == 0 then
-        -- Modern clients use activityIDs; treat single activityID as legacy fallback
+        -- Legacy fallback
         if info.activityID then
             activityIDs = { info.activityID }
         else
@@ -80,19 +100,29 @@ local function ResultMatchesSelection(resultID, kind, filterKind, instances)
         end
     end
 
+    local dungeonMode = nil
+    if kind == "dungeon" then
+        dungeonMode = GetDungeonModeKey()  -- "Mythic" or "MythicKeystone"
+    end
+
     -- OR across all activityIDs for this listing
     for _, activityID in ipairs(activityIDs) do
         local activityInfo = C_LFGList.GetActivityInfoTable(activityID)
         if activityInfo and activityInfo.fullName then
-            local diffLabel    = LRLF_ClassifyDifficulty(activityInfo)
+            local diffLabel    = LRLF_ClassifyDifficulty(activityInfo) -- "Mythic" / "MythicKeystone" / etc
             local fullNameNorm = LRLF_NormalizeName(activityInfo.fullName)
 
             if diffLabel then
-                for _, inst in ipairs(instances) do
-                    if fullNameNorm:find(inst.key, 1, true) then
-                        local instState = filterKind[inst.name]
-                        if instState and instState[diffLabel] then
-                            return true
+                -- Dungeons: only consider activities matching the current mode
+                if dungeonMode and diffLabel ~= dungeonMode then
+                    -- skip
+                else
+                    for _, inst in ipairs(instances) do
+                        if fullNameNorm:find(inst.key, 1, true) then
+                            local instState = filterKind[inst.name]
+                            if instState and instState[diffLabel] then
+                                return true
+                            end
                         end
                     end
                 end
@@ -106,13 +136,6 @@ end
 --------------------------------------------------
 -- Filter a resultID list in-place based on current filter state
 -- kind: "raid" or "dungeon"
---
--- Uses:
---   LRLF_FilterState[kind][instanceName][diffName] = true/false
---   LRLF_NormalizeName, LRLF_ClassifyDifficulty
---   LRLF_GetLegionRaids / LRLF_GetLegionDungeons
---
--- IMPORTANT: Uses info.activityIDs (plural) as the primary activity reference.
 --------------------------------------------------
 
 function LRLF_Filter.FilterResults(results, kind)
@@ -129,9 +152,25 @@ function LRLF_Filter.FilterResults(results, kind)
     end
 
     --------------------------------------------------
-    -- Check if at least one difficulty is selected anywhere
+    -- Check if at least one selection exists
     --------------------------------------------------
-    local anySelected = HasAnySelectedDifficulty(filterKind)
+    local anySelected
+
+    if kind == "dungeon" then
+        -- Dungeons: use per-mode selection (Mythic vs Mythic+)
+        local modeKey = GetDungeonModeKey()  -- "Mythic" or "MythicKeystone"
+
+        anySelected = false
+        for _, instState in pairs(filterKind) do
+            if type(instState) == "table" and instState[modeKey] then
+                anySelected = true
+                break
+            end
+        end
+    else
+        -- Raids: generic "any diff" selection
+        anySelected = HasAnySelectedDifficulty(filterKind)
+    end
 
     -- If nothing selected, clear all results
     if not anySelected then
@@ -173,8 +212,7 @@ function LRLF_Filter.FilterResults(results, kind)
 end
 
 --------------------------------------------------
--- Global wrapper so other modules can call filtering
--- without depending on ADDON_TABLE wiring quirks.
+-- Global wrapper
 --------------------------------------------------
 function LRLF_FilterResults(results, kind)
     return LRLF_Filter.FilterResults(results, kind)

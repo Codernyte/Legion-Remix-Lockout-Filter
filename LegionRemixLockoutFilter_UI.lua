@@ -1,56 +1,33 @@
+--######################################################################
 -- LegionRemixLockoutFilter_UI.lua
--- UI: side panel, rows, filter controls, toggle tab
+-- Core UI frame, shared helpers, dispatch to raid/dungeon UIs
+--######################################################################
 
 local ADDON_NAME, ADDON_TABLE = ...
-
--- Uses global state defined in main:
---   LRLFFrame, LRLF_FilterState, LRLF_SystemSelection, LRLF_Rows,
---   LRLF_FilterButtons, LRLF_FilterEnabled, LRLF_SearchButton,
---   LRLF_ToggleButton, LRLF_UserCollapsed, LRLF_LastSearchWasFiltered
---
--- Uses LFG helper module:
---   ADDON_TABLE.LFG (as LRLF_LFG)
---   LRLF_LFG.BuildRaidDifficultyInfo()
---   LRLF_LFG.BuildDungeonDifficultyInfo()
---
--- Uses utility:
---   LRLF_FormatTimeRemaining(lockoutSeconds)  -- assumed available
 
 local LRLF_LFG = ADDON_TABLE.LFG or {}
 
 --------------------------------------------------
--- Internal helpers for rows / tooltips
+-- Shared difficulty constants
 --------------------------------------------------
 
-local DIFF_ORDER     = { "Normal", "Heroic", "Mythic" }
-local DIFF_SHORTTEXT = { Normal = "Normal", Heroic = "Heroic", Mythic = "Mythic" }
+DIFF_ORDER     = DIFF_ORDER     or { "Normal", "Heroic", "Mythic" }
+DIFF_SHORTTEXT = DIFF_SHORTTEXT or { Normal = "Normal", Heroic = "Heroic", Mythic = "Mythic" }
 
-local function LRLF_ClearRowsForKind(kind)
-    local rows = LRLF_Rows and LRLF_Rows[kind]
+--------------------------------------------------
+-- Shared row helpers / tooltips
+--------------------------------------------------
+
+function LRLF_ClearRowsForKind(kind)
+    LRLF_Rows = LRLF_Rows or { raid = {}, dungeon = {} }
+    local rows = LRLF_Rows[kind]
     if not rows then return end
     for _, row in ipairs(rows) do
         row:Hide()
     end
 end
 
-local function LRLF_UpdateRowAllCheckbox(row, instState)
-    if not row or not row.allCheck then return end
-
-    local anyTrue = false
-    if instState then
-        for _, diffName in ipairs(DIFF_ORDER) do
-            if instState[diffName] then
-                anyTrue = true
-                break
-            end
-        end
-    end
-
-    row.allCheck:SetChecked(anyTrue)
-end
-
--- Store per-difficulty status on the row so we can drive tooltips and dimming
-local function LRLF_SetDiffStatus(row, diffName, isReady, isLocked, isUnavailable, lockoutReset)
+function LRLF_SetDiffStatus(row, diffName, isReady, isLocked, isUnavailable, lockoutReset)
     row.diffStatus = row.diffStatus or {}
     row.diffStatus[diffName] = {
         isReady       = isReady and true or false,
@@ -91,174 +68,18 @@ local function LRLF_SetDifficultyTooltip(owner, row, diffName)
     GameTooltip:Show()
 end
 
-local function LRLF_Diff_OnEnter(self)
+function LRLF_Diff_OnEnter(self)
     if not self.row or not self.diffName then return end
     LRLF_SetDifficultyTooltip(self, self.row, self.diffName)
 end
 
-local function LRLF_Diff_OnLeave(self)
+function LRLF_Diff_OnLeave(self)
     GameTooltip:Hide()
 end
 
---------------------------------------------------
--- Selection helpers for right-click focus
---------------------------------------------------
-
-local function LRLF_SelectOnlyInstance(kind, targetInstName)
-    if not kind or not targetInstName or not LRLF_Rows or not LRLF_Rows[kind] then
-        return
-    end
-
-    LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
-    LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
-
-    local filterKind = LRLF_FilterState[kind]
-    local sysKind    = LRLF_SystemSelection[kind]
-
-    for _, row in ipairs(LRLF_Rows[kind]) do
-        local instName = row.instanceName
-        if instName then
-            filterKind[instName] = filterKind[instName] or {}
-            sysKind[instName]    = sysKind[instName]    or {}
-
-            local instState = filterKind[instName]
-            local sysInst   = sysKind[instName]
-
-            for _, diffName in ipairs(DIFF_ORDER) do
-                local selected = false
-                if instName == targetInstName then
-                    -- For instance-level focus, select all difficulties that are currently "Ready".
-                    local status = row.diffStatus and row.diffStatus[diffName]
-                    if status and status.isReady then
-                        selected = true
-                    end
-                end
-
-                instState[diffName] = selected
-                sysInst[diffName]   = false -- user-managed
-            end
-        end
-    end
-
-    LRLF_RefreshSidePanelText(kind)
-end
-
-local function LRLF_SelectOnlyDifficulty(kind, targetInstName, targetDiffName)
-    if not kind or not targetInstName or not targetDiffName or not LRLF_Rows or not LRLF_Rows[kind] then
-        return
-    end
-
-    LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
-    LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
-
-    local filterKind = LRLF_FilterState[kind]
-    local sysKind    = LRLF_SystemSelection[kind]
-
-    for _, row in ipairs(LRLF_Rows[kind]) do
-        local instName = row.instanceName
-        if instName then
-            filterKind[instName] = filterKind[instName] or {}
-            sysKind[instName]    = sysKind[instName]    or {}
-
-            local instState = filterKind[instName]
-            local sysInst   = sysKind[instName]
-
-            for _, diffName in ipairs(DIFF_ORDER) do
-                local selected = (instName == targetInstName and diffName == targetDiffName)
-                instState[diffName] = selected
-                sysInst[diffName]   = false -- user-managed
-            end
-        end
-    end
-
-    LRLF_RefreshSidePanelText(kind)
-end
-
---------------------------------------------------
--- Checkbox handlers
---------------------------------------------------
-
-local function LRLF_OnAllCheckboxClick(self, button)
-    if button == "RightButton" then
-        local row = self:GetParent()
-        if row and row.instanceName and row.kind then
-            LRLF_SelectOnlyInstance(row.kind, row.instanceName)
-        end
-        return
-    end
-
-    local row = self:GetParent()
-    if not row or not row.instanceName or not row.kind then return end
-
-    local instName = row.instanceName
-    local kind     = row.kind
-
-    LRLF_FilterState[kind]       = LRLF_FilterState[kind]       or {}
-    LRLF_SystemSelection[kind]   = LRLF_SystemSelection[kind]   or {}
-
-    local filterKind = LRLF_FilterState[kind]
-    local sysKind    = LRLF_SystemSelection[kind]
-
-    filterKind[instName] = filterKind[instName] or {}
-    sysKind[instName]    = sysKind[instName]    or {}
-
-    local instState = filterKind[instName]
-    local sysInst   = sysKind[instName]
-
-    local checked = self:GetChecked() and true or false
-
-    for _, diffName in ipairs(DIFF_ORDER) do
-        local cb = row.diffChecks[diffName]
-        if cb and cb:IsEnabled() then
-            cb:SetChecked(checked)
-            instState[diffName] = checked
-            sysInst[diffName]   = false -- user-managed now
-        end
-    end
-
-    LRLF_UpdateRowAllCheckbox(row, instState)
-end
-
-local function LRLF_OnDifficultyCheckboxClick(self, button)
-    local row = self.row
-    if not row or not row.instanceName or not row.kind or not self.diffName then return end
-
-    local instName = row.instanceName
-    local kind     = row.kind
-    local diffName = self.diffName
-
-    if button == "RightButton" then
-        LRLF_SelectOnlyDifficulty(kind, instName, diffName)
-        return
-    end
-
-    LRLF_FilterState[kind]       = LRLF_FilterState[kind]       or {}
-    LRLF_SystemSelection[kind]   = LRLF_SystemSelection[kind]   or {}
-
-    local filterKind = LRLF_FilterState[kind]
-    local sysKind    = LRLF_SystemSelection[kind]
-
-    filterKind[instName] = filterKind[instName] or {}
-    sysKind[instName]    = sysKind[instName]    or {}
-
-    local instState = filterKind[instName]
-    local sysInst   = sysKind[instName]
-
-    local checked = self:GetChecked() and true or false
-    instState[diffName] = checked
-    sysInst[diffName]   = false -- user-managed
-
-    LRLF_UpdateRowAllCheckbox(row, instState)
-end
-
---------------------------------------------------
--- Filter enabled/disabled visual
---------------------------------------------------
-
-local function LRLF_SetRowInteractive(row, enabled)
+function LRLF_SetRowInteractive(row, enabled)
     if not row then return end
 
-    -- Instance name
     if row.nameText then
         if enabled then
             if row.isAllUnavailable then
@@ -274,7 +95,6 @@ local function LRLF_SetRowInteractive(row, enabled)
         end
     end
 
-    -- "All" checkbox
     if row.allCheck then
         if enabled and not row.isAllUnavailable then
             row.allCheck:Enable()
@@ -285,7 +105,6 @@ local function LRLF_SetRowInteractive(row, enabled)
         end
     end
 
-    -- Difficulty checkboxes + labels
     if row.diffChecks and row.diffLabels then
         for diffName, cb in pairs(row.diffChecks) do
             local label  = row.diffLabels[diffName]
@@ -327,6 +146,51 @@ local function LRLF_SetRowInteractive(row, enabled)
     end
 end
 
+function LRLF_ShowTopButtonsForKind(kind)
+    if not LRLFFrame then return end
+
+    if LRLFFrame.raidTopButtons then
+        for _, btn in pairs(LRLFFrame.raidTopButtons) do
+            if kind == "raid" then
+                btn:Show()
+            else
+                btn:Hide()
+            end
+        end
+    end
+
+    if LRLFFrame.dungeonTopButtons then
+        for _, btn in pairs(LRLFFrame.dungeonTopButtons) do
+            if kind == "dungeon" then
+                btn:Show()
+            else
+                btn:Hide()
+            end
+        end
+    end
+end
+
+local function LRLF_UpdateRowAllCheckbox(row, instState, diffKeys)
+    if not row or not row.allCheck then return end
+    diffKeys = diffKeys or DIFF_ORDER
+
+    local anyTrue = false
+    if instState then
+        for _, diffName in ipairs(diffKeys) do
+            if instState[diffName] then
+                anyTrue = true
+                break
+            end
+        end
+    end
+
+    row.allCheck:SetChecked(anyTrue)
+end
+
+--------------------------------------------------
+-- Filter enabled/disabled visual
+--------------------------------------------------
+
 function LRLF_UpdateFilterEnabledVisualState()
     local enabled = (LRLF_FilterEnabled ~= false)
     LRLF_FilterEnabled = enabled
@@ -336,9 +200,8 @@ function LRLF_UpdateFilterEnabledVisualState()
     end
 
     if LRLFFrame then
-        -- Top difficulty buttons
-        if LRLFFrame.topButtons then
-            for _, btn in pairs(LRLFFrame.topButtons) do
+        if LRLFFrame.raidTopButtons then
+            for _, btn in pairs(LRLFFrame.raidTopButtons) do
                 if enabled then
                     btn:Enable()
                     btn:SetAlpha(1.0)
@@ -349,7 +212,18 @@ function LRLF_UpdateFilterEnabledVisualState()
             end
         end
 
-        -- Search button at bottom
+        if LRLFFrame.dungeonTopButtons then
+            for _, btn in pairs(LRLFFrame.dungeonTopButtons) do
+                if enabled then
+                    btn:Enable()
+                    btn:SetAlpha(1.0)
+                else
+                    btn:Disable()
+                    btn:SetAlpha(0.4)
+                end
+            end
+        end
+
         if LRLF_SearchButton then
             if enabled then
                 LRLF_SearchButton:Enable()
@@ -360,7 +234,6 @@ function LRLF_UpdateFilterEnabledVisualState()
             end
         end
 
-        -- Rows
         if LRLF_Rows then
             for _, kind in ipairs({ "raid", "dungeon" }) do
                 local rows = LRLF_Rows[kind]
@@ -383,6 +256,7 @@ function LRLF_ResetAllFilters()
     LRLF_SystemSelection = { raid = {}, dungeon = {} }
 
     if not LRLFFrame or not LRLFFrame:IsShown() or not LFGListFrame or not LFGListFrame.SearchPanel then
+        LRLF_UpdateFilterEnabledVisualState()
         return
     end
 
@@ -414,15 +288,9 @@ local function LRLF_GetCurrentKind()
 end
 
 local function LRLF_BatchSelectDifficulty(kind, which)
-    if kind ~= "raid" and kind ~= "dungeon" then return end
+    if kind ~= "raid" then return end
 
-    local infoMap, list
-    if kind == "dungeon" then
-        infoMap, list = LRLF_LFG.BuildDungeonDifficultyInfo()
-    else
-        infoMap, list = LRLF_LFG.BuildRaidDifficultyInfo()
-    end
-
+    local infoMap, list = LRLF_LFG.BuildRaidDifficultyInfo()
     if not infoMap or not list then return end
 
     LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
@@ -456,7 +324,7 @@ local function LRLF_BatchSelectDifficulty(kind, which)
                     end
 
                     instState[diffName] = selectIt
-                    sysInst[diffName]   = false  -- user-managed
+                    sysInst[diffName]   = false
                 end
             end
         end
@@ -465,11 +333,80 @@ local function LRLF_BatchSelectDifficulty(kind, which)
     LRLF_RefreshSidePanelText(kind)
 end
 
+local function LRLF_DungeonSelectAllReady()
+    local kind = "dungeon"
+    local infoMap, list = LRLF_LFG.BuildDungeonDifficultyInfo()
+    if not infoMap or not list then return end
+
+    LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
+    LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
+
+    local filterKind = LRLF_FilterState[kind]
+    local sysKind    = LRLF_SystemSelection[kind]
+
+    local mode = LRLF_DungeonMode
+    local diffKey = (mode == "KEYSTONE") and "MythicKeystone" or "Mythic"
+
+    for _, entry in ipairs(list) do
+        local info = infoMap[entry.name]
+        if info and info.difficulties then
+            local instName = info.name or entry.name
+            local diffs    = info.difficulties
+            local d        = diffs[diffKey]
+
+            if d then
+                local isReady = (d.available and not d.hasLockout)
+
+                filterKind[instName] = filterKind[instName] or {}
+                sysKind[instName]    = sysKind[instName]    or {}
+
+                local instState = filterKind[instName]
+                local sysInst   = sysKind[instName]
+
+                instState[diffKey] = isReady
+                sysInst[diffKey]   = true
+            end
+        end
+    end
+
+    LRLF_RefreshSidePanelText(kind)
+end
+
+local function LRLF_UpdateDungeonModeButtons()
+    if not LRLFFrame or not LRLFFrame.dungeonTopButtons then return end
+
+    local btnAll      = LRLFFrame.dungeonTopButtons.All
+    local btnMythic   = LRLFFrame.dungeonTopButtons.MYTHIC
+    local btnKeystone = LRLFFrame.dungeonTopButtons.KEYSTONE
+
+    if btnMythic then
+        if LRLF_DungeonMode == "MYTHIC" then
+            btnMythic:GetFontString():SetTextColor(1, 0.82, 0)
+        else
+            btnMythic:GetFontString():SetTextColor(0.9, 0.9, 0.9)
+        end
+    end
+
+    if btnKeystone then
+        if LRLF_DungeonMode == "KEYSTONE" then
+            btnKeystone:GetFontString():SetTextColor(0.4, 0.6, 1.0)
+        else
+            btnKeystone:GetFontString():SetTextColor(0.9, 0.9, 0.9)
+        end
+    end
+
+    if btnAll then
+        btnAll:GetFontString():SetTextColor(1, 1, 1)
+    end
+end
+
 function LRLF_CreateSideWindow()
     if LRLFFrame then return end
 
+    LRLF_Rows = LRLF_Rows or { raid = {}, dungeon = {} }
+
     local f = CreateFrame("Frame", "LRLFFrame", UIParent, "BasicFrameTemplateWithInset")
-    f:SetWidth(260)
+    f:SetWidth(280)
     f:EnableMouse(true)
     f:SetFrameStrata("HIGH")
     f:SetPoint("CENTER")
@@ -478,48 +415,95 @@ function LRLF_CreateSideWindow()
     f.title:SetPoint("CENTER", f.TitleBg, "CENTER", 0, 0)
     f.title:SetText("Lockout Filter")
 
-    -- Top difficulty buttons (All / Normal / Heroic / Mythic)
-    f.topButtons = {}
+    -- RAID top buttons
+    f.raidTopButtons = {}
 
-    local function CreateTopButton(key, label, xOffset)
+    local function CreateRaidTopButton(key, label, xOffset)
         local btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
         btn:SetSize(60, 24)
         btn:SetPoint("TOPLEFT", f, "TOPLEFT", xOffset, -28)
         btn:SetText(label)
-        f.topButtons[key] = btn
+        f.raidTopButtons[key] = btn
         return btn
     end
 
-    local btnAll    = CreateTopButton("All",    "All",    10)
-    local btnNormal = CreateTopButton("Normal", "Normal", 10 + 60 + 2)
-    local btnHeroic = CreateTopButton("Heroic", "Heroic", 10 + (60 + 2) * 2)
-    local btnMythic = CreateTopButton("Mythic", "Mythic", 10 + (60 + 2) * 3)
+    local raidBtnAll    = CreateRaidTopButton("All",    "All",    10)
+    local raidBtnNormal = CreateRaidTopButton("Normal", "Normal", 10 + 60 + 2)
+    local raidBtnHeroic = CreateRaidTopButton("Heroic", "Heroic", 10 + (60 + 2) * 2)
+    local raidBtnMythic = CreateRaidTopButton("Mythic", "Mythic", 10 + (60 + 2) * 3)
 
-    btnAll:SetScript("OnClick", function()
-        local kind = LRLF_GetCurrentKind()
-        LRLF_BatchSelectDifficulty(kind, "All")
+    raidBtnAll:SetScript("OnClick", function()
+        LRLF_BatchSelectDifficulty("raid", "All")
+    end)
+    raidBtnNormal:SetScript("OnClick", function()
+        LRLF_BatchSelectDifficulty("raid", "Normal")
+    end)
+    raidBtnHeroic:SetScript("OnClick", function()
+        LRLF_BatchSelectDifficulty("raid", "Heroic")
+    end)
+    raidBtnMythic:SetScript("OnClick", function()
+        LRLF_BatchSelectDifficulty("raid", "Mythic")
     end)
 
-    btnNormal:SetScript("OnClick", function()
-        local kind = LRLF_GetCurrentKind()
-        LRLF_BatchSelectDifficulty(kind, "Normal")
+    -- DUNGEON top buttons
+    f.dungeonTopButtons = {}
+
+    local function CreateDungeonTopButton(key, label, xOffset)
+        local btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        btn:SetSize(70, 24)
+        btn:SetPoint("TOPLEFT", f, "TOPLEFT", xOffset, -28)
+        btn:SetText(label)
+        f.dungeonTopButtons[key] = btn
+        return btn
+    end
+
+    local dAll      = CreateDungeonTopButton("All",      "All",       10)
+    local dMythic   = CreateDungeonTopButton("MYTHIC",   "Mythic",    10 + 70 + 4)
+    local dKeystone = CreateDungeonTopButton("KEYSTONE", "Mythic+",   10 + (70 + 4) * 2)
+
+    dAll:SetScript("OnClick", function()
+        LRLF_DungeonSelectAllReady()
     end)
 
-    btnHeroic:SetScript("OnClick", function()
-        local kind = LRLF_GetCurrentKind()
-        LRLF_BatchSelectDifficulty(kind, "Heroic")
+    dMythic:SetScript("OnClick", function()
+        LRLF_DungeonMode = "MYTHIC"
+        LRLF_UpdateDungeonModeButtons()
+        LRLF_RefreshSidePanelText("dungeon")
+
+        if LRLF_IsTimerunner and LRLF_IsTimerunner()
+            and LFGListFrame and LFGListFrame.SearchPanel
+            and LFGListSearchPanel_DoSearch
+        then
+            local searchPanel = LFGListFrame.SearchPanel
+            if searchPanel:IsShown() and searchPanel.categoryID == 2 then
+                LRLF_LastSearchWasFiltered = true
+                LFGListSearchPanel_DoSearch(searchPanel)
+            end
+        end
     end)
 
-    btnMythic:SetScript("OnClick", function()
-        local kind = LRLF_GetCurrentKind()
-        LRLF_BatchSelectDifficulty(kind, "Mythic")
+    dKeystone:SetScript("OnClick", function()
+        LRLF_DungeonMode = "KEYSTONE"
+        LRLF_UpdateDungeonModeButtons()
+        LRLF_RefreshSidePanelText("dungeon")
+
+        if LRLF_IsTimerunner and LRLF_IsTimerunner()
+            and LFGListFrame and LFGListFrame.SearchPanel
+            and LFGListSearchPanel_DoSearch
+        then
+            local searchPanel = LFGListFrame.SearchPanel
+            if searchPanel:IsShown() and searchPanel.categoryID == 2 then
+                LRLF_LastSearchWasFiltered = true
+                LFGListSearchPanel_DoSearch(searchPanel)
+            end
+        end
     end)
 
-    -- ScrollFrame below the top buttons
+    LRLF_UpdateDungeonModeButtons()
+
     local scrollFrame = CreateFrame("ScrollFrame", "LRLF_ScrollFrame", f, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", 10, -60)
     scrollFrame:SetPoint("BOTTOMRIGHT", -30, 40)
-
     scrollFrame:EnableMouse(true)
     scrollFrame:EnableMouseWheel(true)
     scrollFrame:SetScript("OnMouseWheel", function(self, delta)
@@ -544,7 +528,6 @@ function LRLF_CreateSideWindow()
     text:SetJustifyV("TOP")
     text:SetText("")
 
-    -- Header for 'Currently unavailable' section
     local unavailableHeader = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     unavailableHeader:SetJustifyH("CENTER")
     unavailableHeader:SetText("")
@@ -555,10 +538,8 @@ function LRLF_CreateSideWindow()
     f.unavailableHeader  = unavailableHeader
     f.content            = content
 
-    -- Search button on bottom
     local searchButton = CreateFrame("Button", "LRLF_SearchButton", f, "UIPanelButtonTemplate")
     searchButton:SetHeight(32)
-    searchButton:ClearAllPoints()
     searchButton:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 10)
     searchButton:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -10, 10)
     searchButton:SetText("Search with Lockout Filters")
@@ -601,7 +582,6 @@ function LRLF_CreateSideWindow()
     f:Hide()
     LRLFFrame = f
 
-    -- Initial visual state based on LRLF_FilterEnabled
     LRLF_UpdateFilterEnabledVisualState()
 end
 
@@ -621,7 +601,6 @@ function LRLF_CreateFilterButtons()
     local bg = CreateFrame("Frame", "LRLF_FilterIconBackground", LRLFFrame, "BackdropTemplate")
     bg:SetFrameStrata("HIGH")
     bg:SetSize(32, ICON_SIZE * 2 + 10)
-    bg:ClearAllPoints()
     bg:SetPoint("TOPLEFT", LRLFFrame, "TOPRIGHT", 0, -40)
     bg:SetPoint("BOTTOMLEFT", LRLFFrame, "TOPRIGHT", 0, -40 - (ICON_SIZE * 2 + 10))
 
@@ -635,7 +614,6 @@ function LRLF_CreateFilterButtons()
     bg:SetBackdropColor(0, 0, 0, 0.85)
     bg:SetBackdropBorderColor(0.8, 0.8, 0.8, 1)
 
-    -- Spyglass = master filter enable/disable
     local apply = CreateFrame("Button", "LRLF_FilterApplyIcon", bg)
     apply:SetSize(ICON_SIZE, ICON_SIZE)
     apply:SetPoint("TOPLEFT", bg, "TOPLEFT", 4, -4)
@@ -658,7 +636,6 @@ function LRLF_CreateFilterButtons()
         LRLF_FilterEnabled = not LRLF_FilterEnabled
         LRLF_UpdateFilterEnabledVisualState()
 
-        -- Re-run the current search so results immediately reflect the new state
         if LRLF_IsTimerunner and LRLF_IsTimerunner()
             and LFGListFrame and LFGListFrame.SearchPanel
             and LFGListSearchPanel_DoSearch
@@ -675,7 +652,6 @@ function LRLF_CreateFilterButtons()
         end
     end)
 
-    -- Settings icon: 1-click signup toggle
     local settings = CreateFrame("Button", "LRLF_OneClickSettingsIcon", bg)
     settings:SetSize(ICON_SIZE, ICON_SIZE)
     settings:SetPoint("TOPLEFT", bg, "TOPLEFT", 4, -4 - ICON_SIZE - 4)
@@ -782,7 +758,7 @@ function LRLF_AttachToPremade()
 end
 
 --------------------------------------------------
--- Refresh the side panel rows for raids/dungeons
+-- Dispatch: build header + call raid/dungeon row builders
 --------------------------------------------------
 
 function LRLF_RefreshSidePanelText(kind)
@@ -791,6 +767,11 @@ function LRLF_RefreshSidePanelText(kind)
     end
 
     kind = kind or "raid"
+
+    LRLF_ShowTopButtonsForKind(kind)
+    if kind == "dungeon" then
+        LRLF_UpdateDungeonModeButtons()
+    end
 
     local infoMap, list, ejErr, lfgErr
     local labelPlural
@@ -829,6 +810,7 @@ function LRLF_RefreshSidePanelText(kind)
         content:SetHeight(height)
         content:SetWidth(LRLFFrame.scrollFrame:GetWidth())
         LRLFFrame.scrollFrame:UpdateScrollChildRect()
+        LRLF_UpdateFilterEnabledVisualState()
         return
     end
 
@@ -837,372 +819,19 @@ function LRLF_RefreshSidePanelText(kind)
     LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
     LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
 
-    local filterKind = LRLF_FilterState[kind]
-    local sysKind    = LRLF_SystemSelection[kind]
+    local textFS     = LRLFFrame.text
+    local textHeight = textFS:GetStringHeight() or 0
 
-    -- Figure out which instances are all-unavailable and which have at least one ready/locked
-    local availableEntries   = {}
-    local unavailableEntries = {}
-
-    for _, entry in ipairs(list) do
-        local info = infoMap[entry.name]
-        if info and info.difficulties then
-            local hasAnyAvailableOrLocked = false
-            for _, diffName in ipairs(DIFF_ORDER) do
-                local d = info.difficulties[diffName]
-                if d and (d.available or d.hasLockout) then
-                    hasAnyAvailableOrLocked = true
-                    break
-                end
-            end
-
-            if hasAnyAvailableOrLocked then
-                table.insert(availableEntries, entry)
-            else
-                table.insert(unavailableEntries, entry)
-            end
-        end
-    end
-
-    -- Initialize instance states with ready-only defaults where needed
-    for _, entry in ipairs(list) do
-        local info = infoMap[entry.name]
-        if info then
-            local instName  = info.name or entry.name
-            local instState = filterKind[instName]
-            if not instState then
-                instState = {}
-                filterKind[instName] = instState
-            end
-            local sysInst = sysKind[instName]
-            if not sysInst then
-                sysInst = {}
-                sysKind[instName] = sysInst
-            end
-
-            local diffs = info.difficulties
-            for _, diffName in ipairs(DIFF_ORDER) do
-                local d = diffs[diffName]
-                if d then
-                    local isReady       = (d.available and not d.hasLockout)
-                    local isUnavailable = (not d.available and not d.hasLockout)
-
-                    if instState[diffName] == nil then
-                        -- Default to ready-only
-                        instState[diffName] = isReady
-                        sysInst[diffName]   = true
-                    else
-                        -- If system-managed, keep in sync with ready-only; otherwise user-managed
-                        if sysInst[diffName] then
-                            instState[diffName] = isReady
-                        end
-                    end
-
-                    if isUnavailable and instState[diffName] then
-                        instState[diffName] = false
-                    end
-                end
-            end
-        end
-    end
-
-    -- Clear existing rows for both kinds, we will rebuild for this kind
     LRLF_ClearRowsForKind("raid")
     LRLF_ClearRowsForKind("dungeon")
 
     LRLF_Rows[kind] = LRLF_Rows[kind] or {}
-    local rowsByKind = LRLF_Rows[kind]
 
-    local textFS     = LRLFFrame.text
-    local textHeight = textFS:GetStringHeight() or 0
-    local content    = LRLFFrame.scrollFrame:GetScrollChild()
-    local y          = -textHeight - 8
-
-    local rowHeight  = 34
-    local spacing    = 4
-
-    local function EnsureRow(index)
-        local row = rowsByKind[index]
-        if not row then
-            row = CreateFrame("Frame", nil, content)
-            row.diffChecks  = {}
-            row.diffLabels  = {}
-            row.activeDiffs = {}
-            rowsByKind[index] = row
-        end
-        row:Show()
-        row.diffStatus = row.diffStatus or {}
-        return row
+    if kind == "dungeon" then
+        LRLF_RefreshDungeonRows(kind, infoMap, list, textHeight, labelPlural)
+    else
+        LRLF_RefreshRaidRows(kind, infoMap, list, textHeight, labelPlural)
     end
 
-    local rowIndex = 1
-
-    -- Build rows for available entries (with difficulties)
-    for _, entry in ipairs(availableEntries) do
-        local info = infoMap[entry.name]
-        if info then
-            local instName  = info.name or entry.name
-            local diffs     = info.difficulties
-            local instState = filterKind[instName]
-
-            local row = EnsureRow(rowIndex)
-            row.kind             = kind
-            row.instanceName     = instName
-            row.isAllUnavailable = false
-
-            row:SetSize(content:GetWidth(), rowHeight)
-            row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", 0, y)
-
-            if not row.allCheck then
-                local cbAll = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
-                cbAll:SetSize(18, 18)
-                cbAll:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
-                cbAll:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-                cbAll:SetScript("OnClick", LRLF_OnAllCheckboxClick)
-                row.allCheck = cbAll
-            else
-                row.allCheck:Show()
-                row.allCheck:ClearAllPoints()
-                row.allCheck:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
-            end
-
-            if not row.nameText then
-                local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-                nameFS:SetJustifyH("LEFT")
-                row.nameText = nameFS
-            end
-            row.nameText:ClearAllPoints()
-            row.nameText:SetPoint("TOPLEFT", row.allCheck, "TOPRIGHT", 4, 0)
-            row.nameText:SetText(instName)
-            row.nameText:SetFontObject("GameFontNormal")
-            row.nameText:SetTextColor(1, 0.82, 0)
-            row.nameText.row = row
-            row.nameText:SetScript("OnMouseDown", function(self, button)
-                if button == "RightButton" and self.row and self.row.instanceName and self.row.kind then
-                    LRLF_SelectOnlyInstance(self.row.kind, self.row.instanceName)
-                end
-            end)
-
-            -- Clear per-row state
-            for k in pairs(row.activeDiffs) do
-                row.activeDiffs[k] = nil
-            end
-            if row.diffStatus then
-                for k in pairs(row.diffStatus) do
-                    row.diffStatus[k] = nil
-                end
-            end
-
-            -- Spread Normal / Heroic / Mythic more evenly across the row
-            local diffXBase   = 10   -- starting X offset
-            local diffSpacing = 73   -- horizontal distance between each difficulty
-            local diffY       = -18
-
-            local slotIndex = 0
-
-            for _, diffName in ipairs(DIFF_ORDER) do
-                local d     = diffs[diffName]
-                local cb    = row.diffChecks[diffName]
-                local label = row.diffLabels[diffName]
-
-                if d then
-                    slotIndex = slotIndex + 1
-
-                    if not cb then
-                        cb = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
-                        cb:SetSize(16, 16)
-                        cb.row      = row
-                        cb.diffName = diffName
-                        cb:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-                        cb:SetScript("OnClick", LRLF_OnDifficultyCheckboxClick)
-                        cb:SetScript("OnEnter", LRLF_Diff_OnEnter)
-                        cb:SetScript("OnLeave", LRLF_Diff_OnLeave)
-                        row.diffChecks[diffName] = cb
-                    end
-                    if not label then
-                        label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                        row.diffLabels[diffName] = label
-                        label.row      = row
-                        label.diffName = diffName
-                        label:SetScript("OnEnter", LRLF_Diff_OnEnter)
-                        label:SetScript("OnLeave", LRLF_Diff_OnLeave)
-                        label:SetScript("OnMouseDown", function(self, button)
-                            if cb:IsEnabled() then
-                                cb:Click(button or "LeftButton")
-                            end
-                        end)
-                    end
-
-                    cb:Show()
-                    label:Show()
-
-                    local x = diffXBase + (slotIndex - 1) * diffSpacing
-                    cb:ClearAllPoints()
-                    cb:SetPoint("TOPLEFT", row, "TOPLEFT", x, diffY)
-                    label:ClearAllPoints()
-                    label:SetPoint("LEFT", cb, "RIGHT", 4, 0)
-
-                    label:SetText(DIFF_SHORTTEXT[diffName] or diffName)
-
-                    local isReady       = (d.available and not d.hasLockout)
-                    local isLocked      = d.hasLockout
-                    local isUnavailable = (not d.available and not d.hasLockout)
-
-                    LRLF_SetDiffStatus(row, diffName, isReady, isLocked, isUnavailable, d.lockoutReset)
-
-                    local selected = instState and instState[diffName]
-
-                    if isUnavailable then
-                        cb:SetChecked(false)
-                        cb:Disable()
-                        cb:SetAlpha(0.4)
-                        label:SetFontObject("GameFontDisable")
-                        label:SetTextColor(0.5, 0.5, 0.5)
-                        row.activeDiffs[diffName] = { enabled = false }
-                    else
-                        cb:Enable()
-                        cb:SetAlpha(1.0)
-                        cb:SetChecked(selected and true or false)
-
-                        label:SetFontObject("GameFontHighlightSmall")
-                        if isLocked then
-                            label:SetTextColor(1.0, 0.2, 0.2)
-                        elseif isReady then
-                            label:SetTextColor(0.0, 1.0, 0.0)
-                        else
-                            label:SetTextColor(0.7, 0.7, 0.7)
-                        end
-
-                        row.activeDiffs[diffName] = { enabled = true }
-                    end
-                else
-                    if cb then cb:Hide() end
-                    if label then label:Hide() end
-                    if row.diffStatus then
-                        row.diffStatus[diffName] = nil
-                    end
-                    row.activeDiffs[diffName] = nil
-                end
-            end
-
-            row.allCheck:Enable()
-            row.allCheck:SetAlpha(1.0)
-            row.nameText:SetFontObject("GameFontNormal")
-            row.nameText:SetTextColor(1, 0.82, 0)
-
-            LRLF_UpdateRowAllCheckbox(row, instState)
-            LRLF_SetRowInteractive(row, LRLF_FilterEnabled)
-
-            y = y - (rowHeight + spacing)
-            rowIndex = rowIndex + 1
-        end
-    end
-
-    -- Unavailable header + rows
-    local hasUnavailable = #unavailableEntries > 0
-    if LRLFFrame.unavailableHeader then
-        if hasUnavailable then
-            local headerFS = LRLFFrame.unavailableHeader
-            headerFS:Show()
-            headerFS:SetText("Currently unavailable")
-            headerFS:SetFontObject("GameFontHighlightSmall")
-            headerFS:SetTextColor(0.7, 0.7, 0.7)
-            headerFS:SetJustifyH("CENTER")
-
-            -- Extra space before header
-            y = y - 12
-
-            headerFS:ClearAllPoints()
-            headerFS:SetPoint("TOP", content, "TOP", 0, y)
-
-            local headerHeight = headerFS:GetStringHeight() or 0
-            y = y - headerHeight - 8
-        else
-            LRLFFrame.unavailableHeader:Hide()
-        end
-    end
-
-    if hasUnavailable then
-        for _, entry in ipairs(unavailableEntries) do
-            local info = infoMap[entry.name]
-            if info then
-                local instName  = info.name or entry.name
-                local instState = filterKind[instName]
-
-                local row = EnsureRow(rowIndex)
-                row.kind             = kind
-                row.instanceName     = instName
-                row.isAllUnavailable = true
-
-                row:SetSize(content:GetWidth(), rowHeight)
-                row:ClearAllPoints()
-                row:SetPoint("TOPLEFT", 0, y)
-
-                if not row.allCheck then
-                    local cbAll = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
-                    cbAll:SetSize(18, 18)
-                    cbAll:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
-                    cbAll:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-                    cbAll:SetScript("OnClick", LRLF_OnAllCheckboxClick)
-                    row.allCheck = cbAll
-                end
-
-                -- For completely unavailable instances, All checkbox is disabled
-                row.allCheck:SetChecked(false)
-                row.allCheck:Disable()
-                row.allCheck:SetAlpha(0.4)
-
-                if not row.nameText then
-                    local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-                    nameFS:SetJustifyH("LEFT")
-                    row.nameText = nameFS
-                end
-                row.nameText:ClearAllPoints()
-                row.nameText:SetPoint("TOPLEFT", row.allCheck, "TOPRIGHT", 4, 0)
-                row.nameText:SetText(instName)
-                row.nameText:SetFontObject("GameFontDisable")
-                row.nameText:SetTextColor(0.5, 0.5, 0.5)
-                row.nameText.row = row
-                row.nameText:SetScript("OnMouseDown", function(self, button)
-                    if button == "RightButton" and self.row and self.row.instanceName and self.row.kind then
-                        LRLF_SelectOnlyInstance(self.row.kind, self.row.instanceName)
-                    end
-                end)
-
-                -- Hide any difficulty controls for this row
-                for _, diffName in ipairs(DIFF_ORDER) do
-                    local cb    = row.diffChecks[diffName]
-                    local label = row.diffLabels[diffName]
-                    if cb then cb:Hide() end
-                    if label then label:Hide() end
-                    if row.diffStatus then
-                        row.diffStatus[diffName] = nil
-                    end
-                    row.activeDiffs[diffName] = nil
-                end
-
-                LRLF_SetRowInteractive(row, LRLF_FilterEnabled)
-
-                y = y - (rowHeight + spacing)
-                rowIndex = rowIndex + 1
-            end
-        end
-    end
-
-    -- Hide any leftover rows
-    for idx = rowIndex, #rowsByKind do
-        if rowsByKind[idx] then
-            rowsByKind[idx]:Hide()
-        end
-    end
-
-    local totalHeight = (textHeight + 8) + ((rowIndex - 1) * (rowHeight + spacing)) + 20
-    if totalHeight < 1 then totalHeight = 1 end
-    content:SetHeight(totalHeight)
-    content:SetWidth(LRLFFrame.scrollFrame:GetWidth())
-    LRLFFrame.scrollFrame:UpdateScrollChildRect()
-
-    -- Apply enabled/disabled look after rebuild
     LRLF_UpdateFilterEnabledVisualState()
 end

@@ -11,39 +11,6 @@ ADDON_TABLE.Config = ADDON_TABLE.Config or {}
 local Config = ADDON_TABLE.Config
 
 --------------------------------------------------
--- Static: Legion dungeon difficulty support
--- Describes which difficulties exist in general
--- for each Legion dungeon.
---------------------------------------------------
-
-LEGION_DUNGEON_DIFFICULTIES = LEGION_DUNGEON_DIFFICULTIES or {
-    -- Normal + Heroic + Mythic
-    ["Black Rook Hold"]         = { Normal = true, Heroic = true, Mythic = true },
-    ["Darkheart Thicket"]       = { Normal = true, Heroic = true, Mythic = true },
-    ["Eye of Azshara"]          = { Normal = true, Heroic = true, Mythic = true },
-    ["Halls of Valor"]          = { Normal = true, Heroic = true, Mythic = true },
-    ["Neltharion's Lair"]       = { Normal = true, Heroic = true, Mythic = true },
-    ["Vault of the Wardens"]    = { Normal = true, Heroic = true, Mythic = true },
-    ["Maw of Souls"]            = { Normal = true, Heroic = true, Mythic = true },
-    ["Assault on Violet Hold"]  = { Normal = true, Heroic = true, Mythic = true },
-
-    -- Heroic + Mythic only (no Normal)
-    ["Court of Stars"]              = { Heroic = true, Mythic = true },
-    ["The Arcway"]                  = { Heroic = true, Mythic = true },
-    ["Cathedral of Eternal Night"]  = { Heroic = true, Mythic = true },
-    ["Seat of the Triumvirate"]     = { Heroic = true, Mythic = true },
-
-    -- Return to Karazhan special handling:
-    -- Mythic = full mega-dungeon
-    -- Normal/Heroic = split Upper/Lower
-    ["Return to Karazhan"]          = { Mythic = true },
-    ["Return to Karazhan: Lower"]   = { Normal = true, Heroic = true },
-    ["Return to Karazhan: Upper"]   = { Normal = true, Heroic = true },
-}
-
-Config.LEGION_DUNGEON_DIFFICULTIES = LEGION_DUNGEON_DIFFICULTIES
-
---------------------------------------------------
 -- Helper: format time from seconds as "Xd Yh Zm"
 --------------------------------------------------
 
@@ -73,9 +40,29 @@ end
 function LRLF_NormalizeName(s)
     if not s then return "" end
     s = s:lower()
-    s = s:gsub("^the%s+", "")   -- strip leading "the "
-    s = s:gsub("[:,%-]", "")    -- strip basic punctuation
-    s = s:gsub("%s+", " ")      -- collapse repeated spaces
+    s = s:gsub("^%s*(.-)%s*$", "%1")  -- trim whitespace
+    s = s:gsub("^the%s+", "")        -- strip leading "the "
+    s = s:gsub("[:,%-]", "")         -- strip basic punctuation
+    s = s:gsub("%s+", " ")           -- collapse repeated spaces
+
+    --------------------------------------------------
+    -- Special handling for Karazhan Lower/Upper names
+    -- Goal: make these equivalent:
+    --   "Return to Karazhan: Lower"
+    --   "Return to Karazhan Lower"
+    --   "Lower Karazhan"
+    --
+    -- All should normalize to "karazhan lower"
+    -- Similarly for Upper -> "karazhan upper"
+    --------------------------------------------------
+    if s:find("karazhan") then
+        if s:find("lower") then
+            s = "karazhan lower"
+        elseif s:find("upper") then
+            s = "karazhan upper"
+        end
+    end
+
     return s
 end
 

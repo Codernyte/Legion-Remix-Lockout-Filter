@@ -167,7 +167,14 @@ function LRLF_GetLegionDungeons()
 end
 
 --------------------------------------------------
--- Classify activity difficulty (Normal/Heroic/Mythic only)
+-- Difficulty classification
+--
+-- For raids:
+--   Normal / Heroic / Mythic (unchanged)
+--
+-- For dungeons:
+--   "Mythic"        = base Mythic (M0) with saved-instance lockouts
+--   "MythicKeystone"= Mythic Keystone / Mythic+ (no lockouts)
 --------------------------------------------------
 
 function LRLF_ClassifyDifficulty(info)
@@ -175,10 +182,19 @@ function LRLF_ClassifyDifficulty(info)
         return nil
     end
 
-    if info.difficultyID then
-        local id = info.difficultyID
+    -- Prefer explicit flags if available
+    if info.isMythicPlusActivity then
+        return "MythicKeystone"
+    end
 
-        if id == 16 or id == 23 or info.isMythicActivity then
+    if info.isMythicActivity then
+        -- Base Mythic raid or dungeon (M0)
+        return "Mythic"
+    end
+
+    local id = info.difficultyID
+    if id then
+        if id == 16 or id == 23 then
             return "Mythic"
         elseif id == 15 or id == 2 then
             return "Heroic"
@@ -187,8 +203,11 @@ function LRLF_ClassifyDifficulty(info)
         end
     end
 
+    -- Fallback: use the name if it's not a protected string
     local name = info.fullName and info.fullName:lower() or ""
-    if name:find("mythic") then
+    if name:find("mythic keystone") or name:find("mythic%+") then
+        return "MythicKeystone"
+    elseif name:find("mythic") then
         return "Mythic"
     elseif name:find("heroic") then
         return "Heroic"
@@ -371,6 +390,9 @@ end
 
 --------------------------------------------------
 -- Build per-dungeon per-difficulty info
+-- Dungeons care only about:
+--   "Mythic"        = base Mythic (M0, with lockouts)
+--   "MythicKeystone"= Mythic Keystone / Mythic+ (no lockouts)
 --------------------------------------------------
 
 function LRLF_BuildDungeonDifficultyInfo()
@@ -383,22 +405,10 @@ function LRLF_BuildDungeonDifficultyInfo()
         local data = availability[dungeon.name]
         local acts = data and data.activities or {}
 
-        local allowed = LEGION_DUNGEON_DIFFICULTIES[dungeon.name]
-
-        local diffs = {}
-        local function addDiff(name)
-            diffs[name] = { available = false, activities = {} }
-        end
-
-        if allowed then
-            for diffName in pairs(allowed) do
-                addDiff(diffName)
-            end
-        else
-            addDiff("Normal")
-            addDiff("Heroic")
-            addDiff("Mythic")
-        end
+        local diffs = {
+            Mythic         = { available = false, activities = {} },
+            MythicKeystone = { available = false, activities = {} },
+        }
 
         local entry = {
             id = dungeon.id,
@@ -417,15 +427,14 @@ function LRLF_BuildDungeonDifficultyInfo()
         dungeonInfo[dungeon.name] = entry
     end
 
+    -- Apply lockouts only to Mythic (M0) where saved-instance data exists.
     LRLF_ApplyLockouts(dungeonInfo, false)
 
     return dungeonInfo, dungeons, ejErr, lfgErr
 end
 
 --------------------------------------------------
--- Namespace wrappers used by UI:
---   LRLF_LFG.BuildRaidDifficultyInfo()
---   LRLF_LFG.BuildDungeonDifficultyInfo()
+-- Namespace wrappers used by UI
 --------------------------------------------------
 
 function LRLF_LFG.BuildRaidDifficultyInfo()

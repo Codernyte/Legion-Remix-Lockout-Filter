@@ -1,10 +1,7 @@
+--######################################################################
 -- LegionRemixLockoutFilter_OneClick.lua
 -- Isolated 1-click signup module for Legion Remix Lockout Filter
---
--- Behavior when LRLF_OneClickSignupEnabled is true:
---   Left-click:          open role selection dialog (no auto-confirm).
---   Shift + Left-click:  auto-confirm with your current spec's role.
---   Ctrl + Shift + Left: auto-confirm with all roles your class can perform.
+--######################################################################
 
 local addonName = ...
 

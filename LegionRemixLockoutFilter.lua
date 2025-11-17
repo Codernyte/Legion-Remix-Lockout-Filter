@@ -36,8 +36,101 @@ LRLF_SearchButton          = LRLF_SearchButton          or nil
 -- One-click signup toggle (settings icon controls this elsewhere)
 LRLF_OneClickSignupEnabled = (LRLF_OneClickSignupEnabled == true)
 
+-- Dungeon mode: "Mythic" (M0) or "MythicKeystone" (Mythic+)
+LRLF_DungeonMode           = LRLF_DungeonMode or "Mythic"
+
 -- Kept for possible future use with search button
 LRLF_LastSearchWasFiltered = LRLF_LastSearchWasFiltered or false
+
+--------------------------------------------------
+-- Shared helper: update the "All" checkbox from per-difficulty state
+--------------------------------------------------
+
+function LRLF_UpdateRowAllCheckbox(row, instState)
+    if not row or not row.allCheck then
+        return
+    end
+
+    local anyTrue = false
+    if instState then
+        for _, v in pairs(instState) do
+            if v then
+                anyTrue = true
+                break
+            end
+        end
+    end
+
+    row.allCheck:SetChecked(anyTrue)
+end
+
+--------------------------------------------------
+-- Global override: exclusive raid instance selection by name
+-- Right-clicking the raid name should:
+--   * Clear all existing raid selections
+--   * Select ONLY "ready" difficulties for that instance
+--   * Never auto-select locked difficulties
+--   * Never auto-select unavailable difficulties
+--------------------------------------------------
+
+function LRLF_ExclusiveRaidInstanceAllDiffs(row)
+    if not row or row.kind ~= "raid" or not row.instanceName then
+        return
+    end
+
+    local kind     = "raid"
+    local instName = row.instanceName
+
+    LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
+    LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
+
+    local filterKind = LRLF_FilterState[kind]
+    local sysKind    = LRLF_SystemSelection[kind]
+
+    -- Clear all existing raid selections first
+    for otherInstName, instState in pairs(filterKind) do
+        if type(instState) == "table" then
+            local sysInst = sysKind[otherInstName] or {}
+            sysKind[otherInstName] = sysInst
+
+            for diffName in pairs(instState) do
+                instState[diffName] = false
+                sysInst[diffName]   = false -- mark as user-owned so system won't auto-restore
+            end
+        end
+    end
+
+    -- Ensure tables exist for the clicked instance
+    filterKind[instName] = filterKind[instName] or {}
+    sysKind[instName]    = sysKind[instName]    or {}
+
+    local instState = filterKind[instName]
+    local sysInst   = sysKind[instName]
+
+    -- We only care about these three raid diffs
+    local DIFF_ORDER = { "Normal", "Heroic", "Mythic" }
+
+    for _, diffName in ipairs(DIFF_ORDER) do
+        local status = row.diffStatus and row.diffStatus[diffName]
+        local isReady       = status and status.isReady
+        local isLocked      = status and status.isLocked
+        local isUnavailable = status and status.isUnavailable
+
+        -- Only auto-select "ready" difficulties.
+        -- Locked or unavailable ones remain unselected.
+        if isReady and not isLocked and not isUnavailable then
+            instState[diffName] = true
+        else
+            instState[diffName] = false
+        end
+
+        -- Mark as user-managed so the system won't overwrite it later.
+        sysInst[diffName] = false
+    end
+
+    -- Refresh the raid side panel to reflect the new selection
+    LRLF_RefreshSidePanelText(kind)
+end
 
 --------------------------------------------------
 -- Timerunner check
