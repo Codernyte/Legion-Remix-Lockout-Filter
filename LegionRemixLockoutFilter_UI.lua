@@ -1,4 +1,3 @@
---######################################################################
 -- LegionRemixLockoutFilter_UI.lua
 -- Core UI frame, shared helpers, dispatch to raid/dungeon UIs
 --######################################################################
@@ -228,28 +227,6 @@ function LRLF_UpdateFilterEnabledVisualState()
             end
         end
     end
-end
-
---------------------------------------------------
--- Reset filters to defaults (ready-only) for current kind
---------------------------------------------------
-
-function LRLF_ResetAllFilters()
-    LRLF_FilterState     = { raid = {}, dungeon = {} }
-    LRLF_SystemSelection = { raid = {}, dungeon = {} }
-
-    if not LRLFFrame or not LRLFFrame:IsShown() or not LFGListFrame or not LFGListFrame.SearchPanel then
-        LRLF_UpdateFilterEnabledVisualState()
-        return
-    end
-
-    local searchPanel = LFGListFrame.SearchPanel
-    local categoryID  = searchPanel.categoryID
-    local kind = (categoryID == 2 and "dungeon")
-              or (categoryID == 3 and "raid")
-              or "raid"
-
-    LRLF_RefreshSidePanelText(kind)
 end
 
 --------------------------------------------------
@@ -552,7 +529,7 @@ function LRLF_CreateFilterButtons()
 
     local applyTex = apply:CreateTexture(nil, "ARTWORK")
     applyTex:SetAllPoints()
-    applyTex:SetTexture("Interface\\Icons\\INV_Misc_Spyglass_03")
+    applyTex:SetTexture("Interface\\Icons\\INV_Misc_Eye_01")
     apply.icon = applyTex
 
     apply:SetScript("OnEnter", function(self)

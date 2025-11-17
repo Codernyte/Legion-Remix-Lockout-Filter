@@ -38,7 +38,7 @@ end
 
 -- Normalize current dungeon mode into a diffKey we use in FilterState
 local function LRLF_GetCurrentDungeonDiffKey()
-    local modeVal = LRLF_DungeonMode
+    local modeVal     = LRLF_DungeonMode
     local dungeonMode = (modeVal == "KEYSTONE") and "KEYSTONE" or "MYTHIC"
     local diffKey     = (dungeonMode == "KEYSTONE") and "MythicKeystone" or "Mythic"
     return dungeonMode, diffKey
@@ -216,20 +216,7 @@ end
 -- Called from LRLF_RefreshSidePanelText (core UI)
 ----------------------------------------------------------------------
 
-function LRLF_RefreshDungeonRows(
-    kind,
-    infoMap,
-    list,
-    filterKind,
-    sysKind,
-    rowsByKind,
-    content,
-    textHeight,
-    rowHeight,
-    spacing,
-    y,
-    rowIndex
-)
+function LRLF_RefreshDungeonRows(kind, infoMap, list, textHeight)
     kind = "dungeon"  -- dungeon-only function
 
     if not LRLFFrame or not LRLFFrame.scrollFrame or not LRLFFrame.text then
@@ -240,8 +227,8 @@ function LRLF_RefreshDungeonRows(
     end
 
     -- Tight layout: slightly shorter rows and reduced gap between rows
-    rowHeight = 26
-    spacing   = -5
+    local rowHeight = 26
+    local spacing   = -5
 
     ------------------------------------------------------------------
     -- Build ordered list of entries
@@ -262,18 +249,18 @@ function LRLF_RefreshDungeonRows(
     LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
     LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
 
-    filterKind = LRLF_FilterState[kind]
-    sysKind    = LRLF_SystemSelection[kind]
+    local filterKind = LRLF_FilterState[kind]
+    local sysKind    = LRLF_SystemSelection[kind]
 
     LRLF_Rows[kind] = LRLF_Rows[kind] or {}
-    rowsByKind      = LRLF_Rows[kind]
+    local rowsByKind = LRLF_Rows[kind]
 
     local textFS = LRLFFrame.text
     textHeight   = textFS:GetStringHeight() or 0
-    content      = LRLFFrame.scrollFrame:GetScrollChild()
+    local content = LRLFFrame.scrollFrame:GetScrollChild()
 
-    y        = -textHeight - 8
-    rowIndex = 1
+    local y        = -textHeight - 8
+    local rowIndex = 1
 
     ------------------------------------------------------------------
     -- Determine mode + difficulty key
@@ -597,46 +584,4 @@ function LRLF_RefreshDungeonRows(
     LRLFFrame.scrollFrame:UpdateScrollChildRect()
 
     LRLF_UpdateFilterEnabledVisualState()
-end
-
-----------------------------------------------------------------------
--- Top button click helpers (wired by core UI)
-----------------------------------------------------------------------
-
-function LRLF_DungeonTopButton_All_OnClick()
-    LRLF_DungeonSelectAllReady()
-end
-
-function LRLF_DungeonTopButton_Mythic_OnClick()
-    LRLF_DungeonMode = "MYTHIC"
-    LRLF_UpdateDungeonModeButtons()
-    LRLF_RefreshSidePanelText("dungeon")
-
-    if LRLF_IsTimerunner and LRLF_IsTimerunner()
-        and LFGListFrame and LFGListFrame.SearchPanel
-        and LFGListSearchPanel_DoSearch
-    then
-        local searchPanel = LFGListFrame.SearchPanel
-        if searchPanel:IsShown() and searchPanel.categoryID == 2 then
-            LRLF_LastSearchWasFiltered = true
-            LFGListSearchPanel_DoSearch(searchPanel)
-        end
-    end
-end
-
-function LRLF_DungeonTopButton_Keystone_OnClick()
-    LRLF_DungeonMode = "KEYSTONE"
-    LRLF_UpdateDungeonModeButtons()
-    LRLF_RefreshSidePanelText("dungeon")
-
-    if LRLF_IsTimerunner and LRLF_IsTimerunner()
-        and LFGListFrame and LFGListFrame.SearchPanel
-        and LFGListSearchPanel_DoSearch
-    then
-        local searchPanel = LFGListFrame.SearchPanel
-        if searchPanel:IsShown() and searchPanel.categoryID == 2 then
-            LRLF_LastSearchWasFiltered = true
-            LFGListSearchPanel_DoSearch(searchPanel)
-        end
-    end
 end

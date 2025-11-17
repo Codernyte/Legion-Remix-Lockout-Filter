@@ -8,7 +8,6 @@ local ADDON_NAME, ADDON_TABLE = ...
 --------------------------------------------------
 
 ADDON_TABLE.Config = ADDON_TABLE.Config or {}
-local Config = ADDON_TABLE.Config
 
 --------------------------------------------------
 -- Helper: format time from seconds as "Xd Yh Zm"
