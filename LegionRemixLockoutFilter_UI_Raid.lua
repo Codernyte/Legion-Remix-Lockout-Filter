@@ -57,7 +57,7 @@ function LRLF_ExclusiveRaidInstanceAllDiffs(row)
     local sysInst   = sysKind[instName]
 
     for _, diffName in ipairs(DIFF_ORDER) do
-        local status = row.diffStatus and row.diffStatus[diffName]
+        local status  = row.diffStatus and row.diffStatus[diffName]
         local isReady = status and status.isReady
         if isReady then
             instState[diffName] = true
@@ -117,8 +117,8 @@ local function LRLF_OnAllCheckboxClick(self)
     local instName = row.instanceName
     local kind     = row.kind
 
-    LRLF_FilterState[kind]       = LRLF_FilterState[kind]       or {}
-    LRLF_SystemSelection[kind]   = LRLF_SystemSelection[kind]   or {}
+    LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
+    LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
 
     local filterKind = LRLF_FilterState[kind]
     local sysKind    = LRLF_SystemSelection[kind]
@@ -156,8 +156,8 @@ local function LRLF_OnDifficultyCheckboxClick(self)
     local kind     = row.kind
     local diffName = self.diffName
 
-    LRLF_FilterState[kind]       = LRLF_FilterState[kind]       or {}
-    LRLF_SystemSelection[kind]   = LRLF_SystemSelection[kind]   or {}
+    LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
+    LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
 
     local filterKind = LRLF_FilterState[kind]
     local sysKind    = LRLF_SystemSelection[kind]
@@ -188,25 +188,24 @@ end
 -- RAID row builder
 --------------------------------------------------
 
-function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight, labelPlural)
+function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
     kind = kind or "raid"
     LRLF_Rows[kind] = LRLF_Rows[kind] or {}
     local rowsByKind = LRLF_Rows[kind]
 
-    local content = LRLFFrame.content
-    local spacing = 4
+    local content   = LRLFFrame.content
+    local spacing   = 4
     local rowHeight = 34
 
-    local y = -textHeight - 8
+    local y        = -textHeight - 8
     local rowIndex = 1
 
     local function EnsureRaidRow(index)
         local row = rowsByKind[index]
         if not row then
             row = CreateFrame("Frame", nil, content)
-            row.diffChecks  = row.diffChecks  or {}
-            row.diffLabels  = row.diffLabels  or {}
-            row.activeDiffs = row.activeDiffs or {}
+            row.diffChecks = row.diffChecks or {}
+            row.diffLabels = row.diffLabels or {}
             rowsByKind[index] = row
         end
         row:Show()
@@ -270,10 +269,8 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight, labelPlural)
                     if instState[diffName] == nil then
                         instState[diffName] = isReady
                         sysInst[diffName]   = true
-                    else
-                        if sysInst[diffName] then
-                            instState[diffName] = isReady
-                        end
+                    elseif sysInst[diffName] then
+                        instState[diffName] = isReady
                     end
 
                     if isUnavailable and instState[diffName] then
@@ -332,9 +329,6 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight, labelPlural)
                 end
             end)
 
-            for k in pairs(row.activeDiffs) do
-                row.activeDiffs[k] = nil
-            end
             if row.diffStatus then
                 for k in pairs(row.diffStatus) do
                     row.diffStatus[k] = nil
@@ -408,7 +402,6 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight, labelPlural)
                         cb:SetAlpha(0.4)
                         label:SetFontObject("GameFontDisable")
                         label:SetTextColor(0.5, 0.5, 0.5)
-                        row.activeDiffs[diffName] = { enabled = false }
                     else
                         cb:Enable()
                         cb:SetAlpha(1.0)
@@ -422,8 +415,6 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight, labelPlural)
                         else
                             label:SetTextColor(0.7, 0.7, 0.7)
                         end
-
-                        row.activeDiffs[diffName] = { enabled = true }
                     end
                 else
                     if cb then cb:Hide() end
@@ -431,7 +422,6 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight, labelPlural)
                     if row.diffStatus then
                         row.diffStatus[diffName] = nil
                     end
-                    row.activeDiffs[diffName] = nil
                 end
             end
 
@@ -472,7 +462,7 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight, labelPlural)
         for _, entry in ipairs(unavailableEntries) do
             local info = infoMap[entry.name]
             if info then
-                local instName  = info.name or entry.name
+                local instName = info.name or entry.name
 
                 local row = EnsureRaidRow(rowIndex)
                 row.kind             = "raid"
@@ -515,7 +505,6 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight, labelPlural)
                     if row.diffStatus then
                         row.diffStatus[diffName] = nil
                     end
-                    row.activeDiffs[diffName] = nil
                 end
 
                 LRLF_SetRowInteractive(row, LRLF_FilterEnabled)

@@ -13,7 +13,6 @@ LRLF_DungeonMode = LRLF_DungeonMode or "MYTHIC"
 ----------------------------------------------------------------------
 -- Local helpers
 -- Core UI provides:
---   LRLF_OnAllCheckboxClick(cb)
 --   LRLF_SetDiffStatus(row, diffName, isReady, isLocked, isUnavailable, lockoutReset)
 --   LRLF_SetRowInteractive(row, enabled)
 --   LRLF_UpdateFilterEnabledVisualState()
@@ -37,7 +36,61 @@ local function EnsureDungeonRow(rowsByKind, content, index)
     return row
 end
 
+-- Normalize current dungeon mode into a diffKey we use in FilterState
+local function LRLF_GetCurrentDungeonDiffKey()
+    local modeVal = LRLF_DungeonMode
+    local dungeonMode = (modeVal == "KEYSTONE") and "KEYSTONE" or "MYTHIC"
+    local diffKey     = (dungeonMode == "KEYSTONE") and "MythicKeystone" or "Mythic"
+    return dungeonMode, diffKey
+end
+
+----------------------------------------------------------------------
+-- "All" checkbox handler for dungeon rows
+-- (kept separate from raid logic; only touches the active diffKey)
+----------------------------------------------------------------------
+
+function LRLF_DungeonAllCheckbox_OnClick(self)
+    local row = self.row or self:GetParent()
+    if not row or row.kind ~= "dungeon" or not row.instanceName then
+        return
+    end
+
+    local kind     = "dungeon"
+    local instName = row.instanceName
+
+    LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
+    LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
+
+    local filterKind = LRLF_FilterState[kind]
+    local sysKind    = LRLF_SystemSelection[kind]
+
+    filterKind[instName] = filterKind[instName] or {}
+    sysKind[instName]    = sysKind[instName]    or {}
+
+    local instState = filterKind[instName]
+    local sysInst   = sysKind[instName]
+
+    local _, diffKey = LRLF_GetCurrentDungeonDiffKey()
+
+    local checked = self:GetChecked() and true or false
+
+    -- If the row is flagged as fully unavailable, force it off.
+    if row.isAllUnavailable then
+        checked = false
+        self:SetChecked(false)
+    end
+
+    instState[diffKey] = checked
+    sysInst[diffKey]   = false -- user-managed for this diffKey
+
+    -- For dungeons, the "All" box == this one diffKey
+    row.allCheck:SetChecked(checked)
+end
+
+----------------------------------------------------------------------
 -- Select all "ready" dungeons for the current dungeon mode
+----------------------------------------------------------------------
+
 function LRLF_DungeonSelectAllReady()
     local kind = "dungeon"
 
@@ -52,8 +105,7 @@ function LRLF_DungeonSelectAllReady()
     local filterKind = LRLF_FilterState[kind]
     local sysKind    = LRLF_SystemSelection[kind]
 
-    local mode    = (LRLF_DungeonMode == "KEYSTONE") and "KEYSTONE" or "MYTHIC"
-    local diffKey = (mode == "KEYSTONE") and "MythicKeystone" or "Mythic"
+    local _, diffKey = LRLF_GetCurrentDungeonDiffKey()
 
     for _, dungeon in ipairs(dungeons) do
         local info = infoMap[dungeon.name]
@@ -114,6 +166,7 @@ end
 
 ----------------------------------------------------------------------
 -- Exclusive selection for dungeon instances (right-click on name)
+-- IMPORTANT: only clears the active diffKey so Mythic vs Keystone are independent
 ----------------------------------------------------------------------
 
 local function LRLF_ExclusiveDungeonInstance(row)
@@ -130,10 +183,9 @@ local function LRLF_ExclusiveDungeonInstance(row)
     local filterKind = LRLF_FilterState[kind]
     local sysKind    = LRLF_SystemSelection[kind]
 
-    local mode    = (LRLF_DungeonMode == "KEYSTONE") and "KEYSTONE" or "MYTHIC"
-    local diffKey = (mode == "KEYSTONE") and "MythicKeystone" or "Mythic"
+    local _, diffKey = LRLF_GetCurrentDungeonDiffKey()
 
-    -- Clear all dungeon selections first
+    -- Clear only the active diffKey across all dungeons
     for otherName, instState in pairs(filterKind) do
         if type(instState) == "table" then
             local sysInst = sysKind[otherName]
@@ -141,10 +193,8 @@ local function LRLF_ExclusiveDungeonInstance(row)
                 sysInst = {}
                 sysKind[otherName] = sysInst
             end
-            for dk in pairs(instState) do
-                instState[dk] = false
-                sysInst[dk]   = false
-            end
+            instState[diffKey] = false
+            sysInst[diffKey]   = false
         end
     end
 
@@ -229,8 +279,7 @@ function LRLF_RefreshDungeonRows(
     -- Determine mode + difficulty key
     ------------------------------------------------------------------
 
-    local dungeonMode = (LRLF_DungeonMode == "KEYSTONE") and "KEYSTONE" or "MYTHIC"
-    local diffKey     = (dungeonMode == "KEYSTONE") and "MythicKeystone" or "Mythic"
+    local dungeonMode, diffKey = LRLF_GetCurrentDungeonDiffKey()
 
     local availableEntries   = {}
     local unavailableEntries = {}
@@ -355,12 +404,14 @@ function LRLF_RefreshDungeonRows(
             cbAll:SetSize(18, 18)
             cbAll:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
             cbAll.row = row
-            cbAll:SetScript("OnClick", LRLF_OnAllCheckboxClick)
+            cbAll:SetScript("OnClick", LRLF_DungeonAllCheckbox_OnClick)
             row.allCheck = cbAll
         else
             row.allCheck:Show()
             row.allCheck:ClearAllPoints()
             row.allCheck:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
+            row.allCheck.row = row
+            row.allCheck:SetScript("OnClick", LRLF_DungeonAllCheckbox_OnClick)
         end
 
         -- Instance name
@@ -438,7 +489,7 @@ function LRLF_RefreshDungeonRows(
     end
 
     ------------------------------------------------------------------
-    -- "Currently unavailable" header + rows (now with grey squares)
+    -- "Currently unavailable" header + rows (no squares)
     ------------------------------------------------------------------
 
     local hasUnavailable = (#unavailableEntries > 0)
@@ -483,7 +534,7 @@ function LRLF_RefreshDungeonRows(
                 cbAll:SetSize(18, 18)
                 cbAll:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
                 cbAll.row = row
-                cbAll:SetScript("OnClick", LRLF_OnAllCheckboxClick)
+                cbAll:SetScript("OnClick", LRLF_DungeonAllCheckbox_OnClick)
                 row.allCheck = cbAll
             end
 
@@ -504,32 +555,16 @@ function LRLF_RefreshDungeonRows(
             row.nameText:SetTextColor(0.5, 0.5, 0.5)
             row.nameText:EnableMouse(false)
 
-            -- Grey status square for unavailable rows
-            if not row.stateIcon then
-                local tex = row:CreateTexture(nil, "ARTWORK")
-                tex:SetSize(10, 10)
-                tex:SetPoint("RIGHT", row, "RIGHT", -4, -2)
-                row.stateIcon = tex
-                row.stateIcon.row      = row
-                row.stateIcon.diffName = diffKey
-                row.stateIcon:SetScript("OnEnter", LRLF_Diff_OnEnter)
-                row.stateIcon:SetScript("OnLeave", LRLF_Diff_OnLeave)
+            -- No colored square for unavailable rows
+            if row.stateIcon then
+                row.stateIcon:Hide()
             end
 
-            local icon = row.stateIcon
-            icon:Show()
-            icon:SetColorTexture(0.4, 0.4, 0.4, 1.0) -- grey for unavailable
-
-            -- Diff status: explicitly mark as unavailable for tooltip
             if row.diffStatus then
                 for k in pairs(row.diffStatus) do
                     row.diffStatus[k] = nil
                 end
-            else
-                row.diffStatus = {}
             end
-            LRLF_SetDiffStatus(row, diffKey, false, false, true, nil)
-
             if row.activeDiffs then
                 for k in pairs(row.activeDiffs) do
                     row.activeDiffs[k] = nil

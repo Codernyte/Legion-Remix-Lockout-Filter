@@ -170,23 +170,6 @@ function LRLF_ShowTopButtonsForKind(kind)
     end
 end
 
-local function LRLF_UpdateRowAllCheckbox(row, instState, diffKeys)
-    if not row or not row.allCheck then return end
-    diffKeys = diffKeys or DIFF_ORDER
-
-    local anyTrue = false
-    if instState then
-        for _, diffName in ipairs(diffKeys) do
-            if instState[diffName] then
-                anyTrue = true
-                break
-            end
-        end
-    end
-
-    row.allCheck:SetChecked(anyTrue)
-end
-
 --------------------------------------------------
 -- Filter enabled/disabled visual
 --------------------------------------------------
@@ -333,73 +316,6 @@ local function LRLF_BatchSelectDifficulty(kind, which)
     LRLF_RefreshSidePanelText(kind)
 end
 
-local function LRLF_DungeonSelectAllReady()
-    local kind = "dungeon"
-    local infoMap, list = LRLF_LFG.BuildDungeonDifficultyInfo()
-    if not infoMap or not list then return end
-
-    LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
-    LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
-
-    local filterKind = LRLF_FilterState[kind]
-    local sysKind    = LRLF_SystemSelection[kind]
-
-    local mode = LRLF_DungeonMode
-    local diffKey = (mode == "KEYSTONE") and "MythicKeystone" or "Mythic"
-
-    for _, entry in ipairs(list) do
-        local info = infoMap[entry.name]
-        if info and info.difficulties then
-            local instName = info.name or entry.name
-            local diffs    = info.difficulties
-            local d        = diffs[diffKey]
-
-            if d then
-                local isReady = (d.available and not d.hasLockout)
-
-                filterKind[instName] = filterKind[instName] or {}
-                sysKind[instName]    = sysKind[instName]    or {}
-
-                local instState = filterKind[instName]
-                local sysInst   = sysKind[instName]
-
-                instState[diffKey] = isReady
-                sysInst[diffKey]   = true
-            end
-        end
-    end
-
-    LRLF_RefreshSidePanelText(kind)
-end
-
-local function LRLF_UpdateDungeonModeButtons()
-    if not LRLFFrame or not LRLFFrame.dungeonTopButtons then return end
-
-    local btnAll      = LRLFFrame.dungeonTopButtons.All
-    local btnMythic   = LRLFFrame.dungeonTopButtons.MYTHIC
-    local btnKeystone = LRLFFrame.dungeonTopButtons.KEYSTONE
-
-    if btnMythic then
-        if LRLF_DungeonMode == "MYTHIC" then
-            btnMythic:GetFontString():SetTextColor(1, 0.82, 0)
-        else
-            btnMythic:GetFontString():SetTextColor(0.9, 0.9, 0.9)
-        end
-    end
-
-    if btnKeystone then
-        if LRLF_DungeonMode == "KEYSTONE" then
-            btnKeystone:GetFontString():SetTextColor(0.4, 0.6, 1.0)
-        else
-            btnKeystone:GetFontString():SetTextColor(0.9, 0.9, 0.9)
-        end
-    end
-
-    if btnAll then
-        btnAll:GetFontString():SetTextColor(1, 1, 1)
-    end
-end
-
 function LRLF_CreateSideWindow()
     if LRLFFrame then return end
 
@@ -462,12 +378,17 @@ function LRLF_CreateSideWindow()
     local dKeystone = CreateDungeonTopButton("KEYSTONE", "Mythic+",   10 + (70 + 4) * 2)
 
     dAll:SetScript("OnClick", function()
-        LRLF_DungeonSelectAllReady()
+        -- Implemented in LegionRemixLockoutFilter_UI_Dungeon.lua
+        if type(LRLF_DungeonSelectAllReady) == "function" then
+            LRLF_DungeonSelectAllReady()
+        end
     end)
 
     dMythic:SetScript("OnClick", function()
         LRLF_DungeonMode = "MYTHIC"
-        LRLF_UpdateDungeonModeButtons()
+        if type(LRLF_UpdateDungeonModeButtons) == "function" then
+            LRLF_UpdateDungeonModeButtons()
+        end
         LRLF_RefreshSidePanelText("dungeon")
 
         if LRLF_IsTimerunner and LRLF_IsTimerunner()
@@ -484,7 +405,9 @@ function LRLF_CreateSideWindow()
 
     dKeystone:SetScript("OnClick", function()
         LRLF_DungeonMode = "KEYSTONE"
-        LRLF_UpdateDungeonModeButtons()
+        if type(LRLF_UpdateDungeonModeButtons) == "function" then
+            LRLF_UpdateDungeonModeButtons()
+        end
         LRLF_RefreshSidePanelText("dungeon")
 
         if LRLF_IsTimerunner and LRLF_IsTimerunner()
@@ -499,7 +422,9 @@ function LRLF_CreateSideWindow()
         end
     end)
 
-    LRLF_UpdateDungeonModeButtons()
+    if type(LRLF_UpdateDungeonModeButtons) == "function" then
+        LRLF_UpdateDungeonModeButtons()
+    end
 
     local scrollFrame = CreateFrame("ScrollFrame", "LRLF_ScrollFrame", f, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", 10, -60)
@@ -578,6 +503,13 @@ function LRLF_CreateSideWindow()
             LRLF_UpdateVisibility()
         end)
     end
+
+    -- Ensure the panel always refreshes for the current kind when it becomes visible,
+    -- so dungeon status squares (green/red/grey) are correct even on first load.
+    f:SetScript("OnShow", function()
+        local kind = LRLF_GetCurrentKind and LRLF_GetCurrentKind() or "raid"
+        LRLF_RefreshSidePanelText(kind)
+    end)
 
     f:Hide()
     LRLFFrame = f
@@ -769,7 +701,7 @@ function LRLF_RefreshSidePanelText(kind)
     kind = kind or "raid"
 
     LRLF_ShowTopButtonsForKind(kind)
-    if kind == "dungeon" then
+    if kind == "dungeon" and type(LRLF_UpdateDungeonModeButtons) == "function" then
         LRLF_UpdateDungeonModeButtons()
     end
 
