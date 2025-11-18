@@ -39,6 +39,15 @@ local function LRLF_SelectLegionTier()
 end
 
 --------------------------------------------------
+-- Caches (per session) for static EJ/LFG data
+--------------------------------------------------
+
+local cachedRaids, cachedRaidsErr
+local cachedDungeons, cachedDungeonsErr
+local cachedRaidAvailability, cachedRaidAvailabilityErr
+local cachedDungeonAvailability, cachedDungeonAvailabilityErr
+
+--------------------------------------------------
 -- Apply saved-instance lockouts onto a difficulty info map
 --------------------------------------------------
 
@@ -103,15 +112,22 @@ end
 
 --------------------------------------------------
 -- Get Legion raids from the Encounter Journal
+-- (cached per login; raids are static for the session)
 --------------------------------------------------
 
 function LRLF_GetLegionRaids()
+    if cachedRaids then
+        return cachedRaids, cachedRaidsErr
+    end
+
     local raids = {}
 
     DebugLog("LRLF_GetLegionRaids: Starting raid discovery.")
     local ok, err = LRLF_SelectLegionTier()
     if not ok then
         DebugLog("LRLF_GetLegionRaids: Failed to select Legion tier: " .. tostring(err))
+        cachedRaids = raids
+        cachedRaidsErr = err
         return raids, err
     end
 
@@ -136,24 +152,35 @@ function LRLF_GetLegionRaids()
 
     if #raids == 0 then
         DebugLog("LRLF_GetLegionRaids: No raids found for the Legion tier.")
-        return raids, "No raids found for the Legion tier."
+        cachedRaids = raids
+        cachedRaidsErr = "No raids found for the Legion tier."
+        return raids, cachedRaidsErr
     end
 
     DebugLog("LRLF_GetLegionRaids: Found " .. tostring(#raids) .. " Legion raids.")
+    cachedRaids = raids
+    cachedRaidsErr = nil
     return raids, nil
 end
 
 --------------------------------------------------
 -- Get Legion dungeons from the Encounter Journal
+-- (cached per login; dungeons are static for the session)
 --------------------------------------------------
 
 function LRLF_GetLegionDungeons()
+    if cachedDungeons then
+        return cachedDungeons, cachedDungeonsErr
+    end
+
     local dungeons = {}
 
     DebugLog("LRLF_GetLegionDungeons: Starting dungeon discovery.")
     local ok, err = LRLF_SelectLegionTier()
     if not ok then
         DebugLog("LRLF_GetLegionDungeons: Failed to select Legion tier: " .. tostring(err))
+        cachedDungeons = dungeons
+        cachedDungeonsErr = err
         return dungeons, err
     end
 
@@ -200,10 +227,14 @@ function LRLF_GetLegionDungeons()
 
     if #dungeons == 0 then
         DebugLog("LRLF_GetLegionDungeons: No dungeons found for the Legion tier.")
-        return dungeons, "No dungeons found for the Legion tier."
+        cachedDungeons = dungeons
+        cachedDungeonsErr = "No dungeons found for the Legion tier."
+        return dungeons, cachedDungeonsErr
     end
 
     DebugLog("LRLF_GetLegionDungeons: Found " .. tostring(#dungeons) .. " Legion dungeons.")
+    cachedDungeons = dungeons
+    cachedDungeonsErr = nil
     return dungeons, nil
 end
 
@@ -262,9 +293,14 @@ end
 
 --------------------------------------------------
 -- Build per-raid availability info from LFGList
+-- (cached per login; activity definitions are static per character)
 --------------------------------------------------
 
 function LRLF_GetLegionRaidAvailability()
+    if cachedRaidAvailability then
+        return cachedRaidAvailability, cachedRaidAvailabilityErr
+    end
+
     DebugLog("LRLF_GetLegionRaidAvailability: Building raid availability map.")
 
     local raids, basicErr = LRLF_GetLegionRaids()
@@ -279,6 +315,8 @@ function LRLF_GetLegionRaidAvailability()
 
     if basicErr and #raids == 0 then
         DebugLog("LRLF_GetLegionRaidAvailability: Early error (no raids): " .. tostring(basicErr))
+        cachedRaidAvailability = byName
+        cachedRaidAvailabilityErr = basicErr
         return byName, basicErr
     end
 
@@ -287,13 +325,17 @@ function LRLF_GetLegionRaidAvailability()
         or not C_LFGList.GetActivityInfoTable
     then
         DebugLog("LRLF_GetLegionRaidAvailability: LFGList API not available.")
-        return byName, "LFGList API not available."
+        cachedRaidAvailability = byName
+        cachedRaidAvailabilityErr = "LFGList API not available."
+        return byName, cachedRaidAvailabilityErr
     end
 
     local activities = C_LFGList.GetAvailableActivities()
     if not activities then
         DebugLog("LRLF_GetLegionRaidAvailability: GetAvailableActivities() returned nil.")
-        return byName, "No LFG activities are currently available (nil returned)."
+        cachedRaidAvailability = byName
+        cachedRaidAvailabilityErr = "No LFG activities are currently available (nil returned)."
+        return byName, cachedRaidAvailabilityErr
     end
 
     DebugLog("LRLF_GetLegionRaidAvailability: Found " .. tostring(#activities) .. " total LFG activities.")
@@ -333,14 +375,21 @@ function LRLF_GetLegionRaidAvailability()
         DebugLog(("LRLF_GetLegionRaidAvailability: %s -> %d activities."):format(raidName, #raidData.activities))
     end
 
-    return byName, nil
+    cachedRaidAvailability = byName
+    cachedRaidAvailabilityErr = basicErr
+    return byName, basicErr
 end
 
 --------------------------------------------------
 -- Build per-dungeon availability info from LFGList
+-- (cached per login; activity definitions are static per character)
 --------------------------------------------------
 
 function LRLF_GetLegionDungeonAvailability()
+    if cachedDungeonAvailability then
+        return cachedDungeonAvailability, cachedDungeonAvailabilityErr
+    end
+
     DebugLog("LRLF_GetLegionDungeonAvailability: Building dungeon availability map.")
 
     local dungeons, basicErr = LRLF_GetLegionDungeons()
@@ -355,6 +404,8 @@ function LRLF_GetLegionDungeonAvailability()
 
     if basicErr and #dungeons == 0 then
         DebugLog("LRLF_GetLegionDungeonAvailability: Early error (no dungeons): " .. tostring(basicErr))
+        cachedDungeonAvailability = byName
+        cachedDungeonAvailabilityErr = basicErr
         return byName, basicErr
     end
 
@@ -363,13 +414,17 @@ function LRLF_GetLegionDungeonAvailability()
         or not C_LFGList.GetActivityInfoTable
     then
         DebugLog("LRLF_GetLegionDungeonAvailability: LFGList API not available.")
-        return byName, "LFGList API not available."
+        cachedDungeonAvailability = byName
+        cachedDungeonAvailabilityErr = "LFGList API not available."
+        return byName, cachedDungeonAvailabilityErr
     end
 
     local activities = C_LFGList.GetAvailableActivities()
     if not activities then
         DebugLog("LRLF_GetLegionDungeonAvailability: GetAvailableActivities() returned nil.")
-        return byName, "No LFG activities are currently available (nil returned)."
+        cachedDungeonAvailability = byName
+        cachedDungeonAvailabilityErr = "No LFG activities are currently available (nil returned)."
+        return byName, cachedDungeonAvailabilityErr
     end
 
     DebugLog("LRLF_GetLegionDungeonAvailability: Found " .. tostring(#activities) .. " total LFG activities.")
@@ -409,7 +464,9 @@ function LRLF_GetLegionDungeonAvailability()
         DebugLog(("LRLF_GetLegionDungeonAvailability: %s -> %d activities."):format(dungeonName, #dungeonData.activities))
     end
 
-    return byName, nil
+    cachedDungeonAvailability = byName
+    cachedDungeonAvailabilityErr = basicErr
+    return byName, basicErr
 end
 
 --------------------------------------------------
@@ -419,22 +476,9 @@ end
 function LRLF_BuildRaidDifficultyInfo()
     DebugLog("LRLF_BuildRaidDifficultyInfo: Building raid difficulty info.")
 
-    -- First pass: pull raids once via EJ.
-    local raids, ejErr = LRLF_GetLegionRaids()
-
-    -- Temporarily override LRLF_GetLegionRaids so availability
-    -- reuses the same list instead of re-hitting EJ.
-    local originalGetLegionRaids = LRLF_GetLegionRaids
-    LRLF_GetLegionRaids = function()
-        return raids, ejErr
-    end
-
-    local availability, lfgErr = LRLF_GetLegionRaidAvailability()
-
-    -- Restore original function no matter what.
-    LRLF_GetLegionRaids = originalGetLegionRaids
-
-    local raidInfo = {}
+    local raids, ejErr             = LRLF_GetLegionRaids()
+    local availability, lfgErr     = LRLF_GetLegionRaidAvailability()
+    local raidInfo                 = {}
 
     for _, raid in ipairs(raids) do
         local data = availability[raid.name]
@@ -478,22 +522,9 @@ end
 function LRLF_BuildDungeonDifficultyInfo()
     DebugLog("LRLF_BuildDungeonDifficultyInfo: Building dungeon difficulty info.")
 
-    -- First pass: pull dungeons once via EJ (with Karazhan split).
-    local dungeons, ejErr = LRLF_GetLegionDungeons()
-
-    -- Temporarily override LRLF_GetLegionDungeons so availability
-    -- reuses the same list instead of re-hitting EJ.
-    local originalGetLegionDungeons = LRLF_GetLegionDungeons
-    LRLF_GetLegionDungeons = function()
-        return dungeons, ejErr
-    end
-
-    local availability, lfgErr = LRLF_GetLegionDungeonAvailability()
-
-    -- Restore original.
-    LRLF_GetLegionDungeons = originalGetLegionDungeons
-
-    local dungeonInfo = {}
+    local dungeons, ejErr          = LRLF_GetLegionDungeons()
+    local availability, lfgErr     = LRLF_GetLegionDungeonAvailability()
+    local dungeonInfo              = {}
 
     for _, dungeon in ipairs(dungeons) do
         local data = availability[dungeon.name]
