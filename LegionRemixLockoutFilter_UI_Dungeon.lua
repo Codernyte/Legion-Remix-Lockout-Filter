@@ -38,7 +38,7 @@ end
 
 -- Normalize current dungeon mode into a diffKey we use in FilterState
 local function LRLF_GetCurrentDungeonDiffKey()
-    local modeVal     = LRLF_DungeonMode
+    local modeVal = LRLF_DungeonMode
     local dungeonMode = (modeVal == "KEYSTONE") and "KEYSTONE" or "MYTHIC"
     local diffKey     = (dungeonMode == "KEYSTONE") and "MythicKeystone" or "Mythic"
     return dungeonMode, diffKey
@@ -105,7 +105,7 @@ function LRLF_DungeonSelectAllReady()
     local filterKind = LRLF_FilterState[kind]
     local sysKind    = LRLF_SystemSelection[kind]
 
-    local _, diffKey = LRLF_GetCurrentDungeonDiffKey()
+    local dungeonMode, diffKey = LRLF_GetCurrentDungeonDiffKey()
 
     for _, dungeon in ipairs(dungeons) do
         local info = infoMap[dungeon.name]
@@ -115,8 +115,18 @@ function LRLF_DungeonSelectAllReady()
             local d        = diffs[diffKey]
 
             if d then
-                local isLocked = d.hasLockout and (diffKey == "Mythic")
-                local isReady  = (d.available and not isLocked)
+                local isLocked
+                local isReady
+
+                if diffKey == "MythicKeystone" then
+                    -- In Remix, Mythic+ has no per-run lockout; treat all
+                    -- visible keystone dungeons as "ready".
+                    isLocked = false
+                    isReady  = true
+                else
+                    isLocked = d.hasLockout and true or false
+                    isReady  = (d.available and not isLocked)
+                end
 
                 filterKind[instName] = filterKind[instName] or {}
                 sysKind[instName]    = sysKind[instName]    or {}
@@ -216,7 +226,20 @@ end
 -- Called from LRLF_RefreshSidePanelText (core UI)
 ----------------------------------------------------------------------
 
-function LRLF_RefreshDungeonRows(kind, infoMap, list, textHeight)
+function LRLF_RefreshDungeonRows(
+    kind,
+    infoMap,
+    list,
+    filterKind,
+    sysKind,
+    rowsByKind,
+    content,
+    textHeight,
+    rowHeight,
+    spacing,
+    y,
+    rowIndex
+)
     kind = "dungeon"  -- dungeon-only function
 
     if not LRLFFrame or not LRLFFrame.scrollFrame or not LRLFFrame.text then
@@ -227,8 +250,8 @@ function LRLF_RefreshDungeonRows(kind, infoMap, list, textHeight)
     end
 
     -- Tight layout: slightly shorter rows and reduced gap between rows
-    local rowHeight = 26
-    local spacing   = -5
+    rowHeight = 26
+    spacing   = -7   -- was -5; reduce space between rows by ~2px
 
     ------------------------------------------------------------------
     -- Build ordered list of entries
@@ -249,18 +272,30 @@ function LRLF_RefreshDungeonRows(kind, infoMap, list, textHeight)
     LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
     LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
 
-    local filterKind = LRLF_FilterState[kind]
-    local sysKind    = LRLF_SystemSelection[kind]
+    filterKind = LRLF_FilterState[kind]
+    sysKind    = LRLF_SystemSelection[kind]
 
     LRLF_Rows[kind] = LRLF_Rows[kind] or {}
-    local rowsByKind = LRLF_Rows[kind]
+    rowsByKind      = LRLF_Rows[kind]
 
     local textFS = LRLFFrame.text
     textHeight   = textFS:GetStringHeight() or 0
-    local content = LRLFFrame.scrollFrame:GetScrollChild()
+    content      = LRLFFrame.scrollFrame:GetScrollChild()
 
-    local y        = -textHeight - 8
-    local rowIndex = 1
+    -- Account for helper instruction text height so rows don't overlap it
+    local instructionHeight = 0
+    if LRLFFrame.instructionText then
+        local instrText = LRLFFrame.instructionText:GetText()
+        if instrText and instrText ~= "" then
+            instructionHeight = LRLFFrame.instructionText:GetStringHeight() or 0
+            instructionHeight = instructionHeight + 4 -- small gap
+        end
+    end
+
+    local headerHeight = (textHeight or 0) + instructionHeight
+
+    y        = -headerHeight - 8
+    rowIndex = 1
 
     ------------------------------------------------------------------
     -- Determine mode + difficulty key
@@ -304,20 +339,20 @@ function LRLF_RefreshDungeonRows(kind, infoMap, list, textHeight)
 
                 if d then
                     -- Determine availability state
-                    local isLocked      = d.hasLockout and (diffKey == "Mythic")
-                    local isReady       = (d.available and not isLocked)
-                    local isUnavailable = (not d.available and not d.hasLockout)
+                    local isLocked
+                    local isReady
+                    local isUnavailable
 
-                    ------------------------------------------------------------------
-                    -- Override for Kara Upper/Lower in Mythic+:
-                    -- They ARE available keystone dungeons in Remix.
-                    ------------------------------------------------------------------
-                    if dungeonMode == "KEYSTONE"
-                       and (instName == "Return to Karazhan: Lower" or instName == "Return to Karazhan: Upper")
-                    then
+                    if diffKey == "MythicKeystone" then
+                        -- In Remix, treat all visible keystone dungeons as ready:
+                        -- no lockouts, no "unavailable" tooltip conflicts.
                         isLocked      = false
                         isReady       = true
                         isUnavailable = false
+                    else
+                        isLocked      = d.hasLockout and (diffKey == "Mythic")
+                        isReady       = (d.available and not isLocked)
+                        isUnavailable = (not d.available and not d.hasLockout)
                     end
 
                     filterKind[instName] = filterKind[instName] or {}
@@ -389,14 +424,14 @@ function LRLF_RefreshDungeonRows(kind, infoMap, list, textHeight)
         if not row.allCheck then
             local cbAll = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
             cbAll:SetSize(18, 18)
-            cbAll:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
+            cbAll:SetPoint("LEFT", row, "LEFT", 0, 0)   -- center vertically
             cbAll.row = row
             cbAll:SetScript("OnClick", LRLF_DungeonAllCheckbox_OnClick)
             row.allCheck = cbAll
         else
             row.allCheck:Show()
             row.allCheck:ClearAllPoints()
-            row.allCheck:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
+            row.allCheck:SetPoint("LEFT", row, "LEFT", 0, 0)  -- center vertically
             row.allCheck.row = row
             row.allCheck:SetScript("OnClick", LRLF_DungeonAllCheckbox_OnClick)
         end
@@ -408,15 +443,17 @@ function LRLF_RefreshDungeonRows(kind, infoMap, list, textHeight)
             row.nameText = nameFS
         end
         row.nameText:ClearAllPoints()
-        row.nameText:SetPoint("TOPLEFT", row.allCheck, "TOPRIGHT", 4, 0)
+        row.nameText:SetPoint("LEFT", row.allCheck, "RIGHT", 4, 0)
         row.nameText:SetText(instName)
 
+        -- Color instance names by mode:
+        --  * Mythic tab  -> gold
+        --  * Mythic+ tab -> blue (match Mythic+ button)
+        row.nameText:SetFontObject("GameFontNormal")
         if dungeonMode == "KEYSTONE" then
-            row.nameText:SetFontObject("GameFontNormal")
-            row.nameText:SetTextColor(0.4, 0.6, 1.0) -- blue-ish for M+
+            row.nameText:SetTextColor(0.4, 0.6, 1.0)
         else
-            row.nameText:SetFontObject("GameFontNormal")
-            row.nameText:SetTextColor(1, 0.82, 0)   -- gold-ish for M0
+            row.nameText:SetTextColor(1, 0.82, 0)
         end
 
         -- Click name:
@@ -496,7 +533,8 @@ function LRLF_RefreshDungeonRows(kind, infoMap, list, textHeight)
             headerFS:SetPoint("TOP", content, "TOP", 0, y)
 
             local headerHeight = headerFS:GetStringHeight() or 0
-            y = y - headerHeight - 8
+            -- Close the gap between the header and first unavailable row by ~8px
+            y = y - headerHeight    -- was: headerHeight - 8
         else
             LRLFFrame.unavailableHeader:Hide()
         end
@@ -519,27 +557,39 @@ function LRLF_RefreshDungeonRows(kind, infoMap, list, textHeight)
             if not row.allCheck then
                 local cbAll = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
                 cbAll:SetSize(18, 18)
-                cbAll:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
+                cbAll:SetPoint("LEFT", row, "LEFT", 0, 0)  -- center vertically
                 cbAll.row = row
                 cbAll:SetScript("OnClick", LRLF_DungeonAllCheckbox_OnClick)
                 row.allCheck = cbAll
+            else
+                row.allCheck:ClearAllPoints()
+                row.allCheck:SetPoint("LEFT", row, "LEFT", 0, 0) -- center vertically
+                row.allCheck.row = row
+                row.allCheck:SetScript("OnClick", LRLF_DungeonAllCheckbox_OnClick)
             end
 
             row.allCheck:SetChecked(false)
             row.allCheck:Disable()
             row.allCheck:SetAlpha(0.4)
 
-            -- Instance name greyed out
+            -- Instance name (still grouped as "unavailable", but color
+            -- follows the active mode: gold for Mythic, blue for M+).
             if not row.nameText then
                 local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 nameFS:SetJustifyH("LEFT")
                 row.nameText = nameFS
             end
             row.nameText:ClearAllPoints()
-            row.nameText:SetPoint("TOPLEFT", row.allCheck, "TOPRIGHT", 4, 0)
+            row.nameText:SetPoint("LEFT", row.allCheck, "RIGHT", 4, 0)
             row.nameText:SetText(instName)
             row.nameText:SetFontObject("GameFontDisable")
-            row.nameText:SetTextColor(0.5, 0.5, 0.5)
+
+            if dungeonMode == "KEYSTONE" then
+                row.nameText:SetTextColor(0.4, 0.6, 1.0)
+            else
+                row.nameText:SetTextColor(1, 0.82, 0)
+            end
+
             row.nameText:EnableMouse(false)
 
             -- No colored square for unavailable rows
@@ -575,7 +625,18 @@ function LRLF_RefreshDungeonRows(kind, infoMap, list, textHeight)
         end
     end
 
-    local totalHeight = (textHeight + 8) + ((rowIndex - 1) * (rowHeight + spacing)) + 20
+    local instructionHeightForTotal = 0
+    if LRLFFrame.instructionText then
+        local instrText = LRLFFrame.instructionText:GetText()
+        if instrText and instrText ~= "" then
+            instructionHeightForTotal = LRLFFrame.instructionText:GetStringHeight() or 0
+            instructionHeightForTotal = instructionHeightForTotal + 4
+        end
+    end
+
+    local headerHeightTotal = (textHeight or 0) + instructionHeightForTotal
+
+    local totalHeight = (headerHeightTotal + 8) + ((rowIndex - 1) * (rowHeight + spacing)) + 20
     if totalHeight < 1 then
         totalHeight = 1
     end
@@ -584,4 +645,46 @@ function LRLF_RefreshDungeonRows(kind, infoMap, list, textHeight)
     LRLFFrame.scrollFrame:UpdateScrollChildRect()
 
     LRLF_UpdateFilterEnabledVisualState()
+end
+
+----------------------------------------------------------------------
+-- Top button click helpers (wired by core UI)
+----------------------------------------------------------------------
+
+function LRLF_DungeonTopButton_All_OnClick()
+    LRLF_DungeonSelectAllReady()
+end
+
+function LRLF_DungeonTopButton_Mythic_OnClick()
+    LRLF_DungeonMode = "MYTHIC"
+    LRLF_UpdateDungeonModeButtons()
+    LRLF_RefreshSidePanelText("dungeon")
+
+    if LRLF_IsTimerunner and LRLF_IsTimerunner()
+        and LFGListFrame and LFGListFrame.SearchPanel
+        and LFGListSearchPanel_DoSearch
+    then
+        local searchPanel = LFGListFrame.SearchPanel
+        if searchPanel:IsShown() and searchPanel.categoryID == 2 then
+            LRLF_LastSearchWasFiltered = true
+            LFGListSearchPanel_DoSearch(searchPanel)
+        end
+    end
+end
+
+function LRLF_DungeonTopButton_Keystone_OnClick()
+    LRLF_DungeonMode = "KEYSTONE"
+    LRLF_UpdateDungeonModeButtons()
+    LRLF_RefreshSidePanelText("dungeon")
+
+    if LRLF_IsTimerunner and LRLF_IsTimerunner()
+        and LFGListFrame and LFGListFrame.SearchPanel
+        and LFGListSearchPanel_DoSearch
+    then
+        local searchPanel = LFGListFrame.SearchPanel
+        if searchPanel:IsShown() and searchPanel.categoryID == 2 then
+            LRLF_LastSearchWasFiltered = true
+            LFGListSearchPanel_DoSearch(searchPanel)
+        end
+    end
 end

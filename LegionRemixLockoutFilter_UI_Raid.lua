@@ -53,7 +53,7 @@ end
 local function LRLF_SelectRaidInstanceReadyDiffs(row)
     if not row or row.kind ~= RAID_KIND or not row.instanceName then return end
 
-    local instName                = row.instanceName
+    local instName                 = row.instanceName
     local _, _, instState, sysInst = EnsureRaidInstanceState(instName)
 
     -- First, see if any ready diff is currently selected
@@ -99,7 +99,7 @@ end
 function LRLF_ExclusiveRaidInstanceAllDiffs(row)
     if not row or row.kind ~= RAID_KIND or not row.instanceName then return end
 
-    local instName                = row.instanceName
+    local instName                 = row.instanceName
     LRLF_ExclusiveClearAll()
     local _, _, instState, sysInst = EnsureRaidInstanceState(instName)
 
@@ -124,7 +124,7 @@ function LRLF_ExclusiveRaidDifficulty(row, diffName)
 
     LRLF_ExclusiveClearAll()
 
-    local instName                = row.instanceName
+    local instName                 = row.instanceName
     local _, _, instState, sysInst = EnsureRaidInstanceState(instName)
 
     local status = row.diffStatus and row.diffStatus[diffName]
@@ -149,7 +149,7 @@ local function LRLF_OnAllCheckboxClick(self)
     local row = self:GetParent()
     if not row or not row.instanceName or not row.kind then return end
 
-    local instName                = row.instanceName
+    local instName                 = row.instanceName
     local _, _, instState, sysInst = EnsureRaidInstanceState(instName)
 
     local checked = self:GetChecked() and true or false
@@ -185,14 +185,14 @@ local function LRLF_OnAllCheckboxClick(self)
         -- dungeons handled in dungeon file
     end
 
-    LRLF_UpdateRowAllCheckbox(row, instState, DIFF_ORDER)
+    LRLF_UpdateRowAllCheckbox(row, instState)
 end
 
 local function LRLF_OnDifficultyCheckboxClick(self)
     local row = self.row
     if not row or not row.instanceName or not row.kind or not self.diffName then return end
 
-    local instName                = row.instanceName
+    local instName                 = row.instanceName
     local _, _, instState, sysInst = EnsureRaidInstanceState(instName)
 
     local diffName = self.diffName
@@ -201,7 +201,7 @@ local function LRLF_OnDifficultyCheckboxClick(self)
     instState[diffName] = checked
     sysInst[diffName]   = false
 
-    LRLF_UpdateRowAllCheckbox(row, instState, DIFF_ORDER)
+    LRLF_UpdateRowAllCheckbox(row, instState)
 end
 
 local function LRLF_DifficultyCheckbox_OnClick(self, button)
@@ -225,7 +225,19 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
     local spacing   = 4
     local rowHeight = 34
 
-    local y        = -textHeight - 8
+    -- Account for helper instruction text height so rows don't overlap it
+    local instructionHeight = 0
+    if LRLFFrame.instructionText then
+        local instrText = LRLFFrame.instructionText:GetText()
+        if instrText and instrText ~= "" then
+            instructionHeight = LRLFFrame.instructionText:GetStringHeight() or 0
+            instructionHeight = instructionHeight + 4 -- small gap
+        end
+    end
+
+    local headerHeight = (textHeight or 0) + instructionHeight
+
+    local y        = -headerHeight - 8
     local rowIndex = 1
 
     local function EnsureRaidRow(index)
@@ -441,7 +453,7 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
             row.allCheck:Enable()
             row.allCheck:SetAlpha(1.0)
 
-            LRLF_UpdateRowAllCheckbox(row, instState, DIFF_ORDER)
+            LRLF_UpdateRowAllCheckbox(row, instState)
             LRLF_SetRowInteractive(row, LRLF_FilterEnabled)
 
             y = y - (rowHeight + spacing)
@@ -534,7 +546,18 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
         end
     end
 
-    local totalHeight = (textHeight + 8) + ((rowIndex - 1) * (rowHeight + spacing)) + 20
+    local instructionHeightForTotal = 0
+    if LRLFFrame.instructionText then
+        local instrText = LRLFFrame.instructionText:GetText()
+        if instrText and instrText ~= "" then
+            instructionHeightForTotal = LRLFFrame.instructionText:GetStringHeight() or 0
+            instructionHeightForTotal = instructionHeightForTotal + 4
+        end
+    end
+
+    local headerHeightTotal = (textHeight or 0) + instructionHeightForTotal
+
+    local totalHeight = (headerHeightTotal + 8) + ((rowIndex - 1) * (rowHeight + spacing)) + 20
     if totalHeight < 1 then totalHeight = 1 end
     content:SetHeight(totalHeight)
     content:SetWidth(LRLFFrame.scrollFrame:GetWidth())

@@ -1,3 +1,4 @@
+--######################################################################
 -- LegionRemixLockoutFilter_UI.lua
 -- Core UI frame, shared helpers, dispatch to raid/dungeon UIs
 --######################################################################
@@ -79,6 +80,7 @@ end
 function LRLF_SetRowInteractive(row, enabled)
     if not row then return end
 
+    -- Instance name
     if row.nameText then
         if enabled then
             if row.isAllUnavailable then
@@ -94,6 +96,7 @@ function LRLF_SetRowInteractive(row, enabled)
         end
     end
 
+    -- "All" checkbox
     if row.allCheck then
         if enabled and not row.isAllUnavailable then
             row.allCheck:Enable()
@@ -104,12 +107,13 @@ function LRLF_SetRowInteractive(row, enabled)
         end
     end
 
+    -- Per-difficulty checkboxes + labels
     if row.diffChecks and row.diffLabels then
         for diffName, cb in pairs(row.diffChecks) do
             local label  = row.diffLabels[diffName]
             local status = row.diffStatus and row.diffStatus[diffName]
-
             local isUnavailable = status and status.isUnavailable
+
             if enabled and not isUnavailable and not row.isAllUnavailable then
                 cb:Enable()
                 cb:SetAlpha(1.0)
@@ -119,14 +123,20 @@ function LRLF_SetRowInteractive(row, enabled)
             end
 
             if label then
+                -- Keep font size consistent; only change color / disabled state
+                label:SetFontObject("GameFontHighlightSmall")
+
                 if not status then
-                    label:SetFontObject(enabled and "GameFontHighlightSmall" or "GameFontDisable")
-                    label:SetTextColor(0.7, 0.7, 0.7)
-                else
                     if enabled then
-                        label:SetFontObject("GameFontHighlightSmall")
+                        label:SetTextColor(0.7, 0.7, 0.7)
+                    else
+                        label:SetTextColor(0.6, 0.6, 0.6)
+                    end
+                else
+                    if not enabled then
+                        label:SetTextColor(0.6, 0.6, 0.6)
+                    else
                         if status.isUnavailable then
-                            label:SetFontObject("GameFontDisable")
                             label:SetTextColor(0.5, 0.5, 0.5)
                         elseif status.isLocked then
                             label:SetTextColor(1.0, 0.2, 0.2)
@@ -135,9 +145,6 @@ function LRLF_SetRowInteractive(row, enabled)
                         else
                             label:SetTextColor(0.7, 0.7, 0.7)
                         end
-                    else
-                        label:SetFontObject("GameFontDisable")
-                        label:SetTextColor(0.6, 0.6, 0.6)
                     end
                 end
             end
@@ -230,7 +237,29 @@ function LRLF_UpdateFilterEnabledVisualState()
 end
 
 --------------------------------------------------
--- Side panel window creation
+-- Reset filters to defaults (ready-only) for current kind
+--------------------------------------------------
+
+function LRLF_ResetAllFilters()
+    LRLF_FilterState     = { raid = {}, dungeon = {} }
+    LRLF_SystemSelection = { raid = {}, dungeon = {} }
+
+    if not LRLFFrame or not LRLFFrame:IsShown() or not LFGListFrame or not LFGListFrame.SearchPanel then
+        LRLF_UpdateFilterEnabledVisualState()
+        return
+    end
+
+    local searchPanel = LFGListFrame.SearchPanel
+    local categoryID  = searchPanel.categoryID
+    local kind = (categoryID == 2 and "dungeon")
+              or (categoryID == 3 and "raid")
+              or "raid"
+
+    LRLF_RefreshSidePanelText(kind)
+end
+
+--------------------------------------------------
+-- Side panel window creation helpers
 --------------------------------------------------
 
 local function LRLF_GetCurrentKind()
@@ -293,6 +322,23 @@ local function LRLF_BatchSelectDifficulty(kind, which)
     LRLF_RefreshSidePanelText(kind)
 end
 
+--------------------------------------------------
+-- Helper text for left/right click
+--------------------------------------------------
+
+function LRLF_GetInstructionText(kind)
+    -- Keep this short so it fits in ~2 lines
+    if kind == "dungeon" then
+        return "Left-click: toggle this dungeon.\nRight-click: select only this dungeon."
+    else
+        return "Left-click: toggle ready difficulties.\nRight-click: select only this raid or difficulty."
+    end
+end
+
+--------------------------------------------------
+-- Side panel window creation
+--------------------------------------------------
+
 function LRLF_CreateSideWindow()
     if LRLFFrame then return end
 
@@ -304,11 +350,14 @@ function LRLF_CreateSideWindow()
     f:SetFrameStrata("HIGH")
     f:SetPoint("CENTER")
 
+    -- Window title
     f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.title:SetPoint("CENTER", f.TitleBg, "CENTER", 0, 0)
-    f.title:SetText("Lockout Filter")
+    f.title:SetText("Legion Remix Lockout Filter")
 
-    -- RAID top buttons
+    --------------------------------------------------
+    -- RAID top buttons (left-aligned row)
+    --------------------------------------------------
     f.raidTopButtons = {}
 
     local function CreateRaidTopButton(key, label, xOffset)
@@ -338,24 +387,35 @@ function LRLF_CreateSideWindow()
         LRLF_BatchSelectDifficulty("raid", "Mythic")
     end)
 
+    --------------------------------------------------
     -- DUNGEON top buttons
+    --  All = top-left
+    --  Mythic / Mythic+ = right-aligned as a pair
+    --------------------------------------------------
     f.dungeonTopButtons = {}
 
-    local function CreateDungeonTopButton(key, label, xOffset)
-        local btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        btn:SetSize(70, 24)
-        btn:SetPoint("TOPLEFT", f, "TOPLEFT", xOffset, -28)
-        btn:SetText(label)
-        f.dungeonTopButtons[key] = btn
-        return btn
-    end
+    -- "All" on the far left
+    local dAll = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    dAll:SetSize(60, 24)
+    dAll:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -28)
+    dAll:SetText("All")
+    f.dungeonTopButtons.All = dAll
 
-    local dAll      = CreateDungeonTopButton("All",      "All",       10)
-    local dMythic   = CreateDungeonTopButton("MYTHIC",   "Mythic",    10 + 70 + 4)
-    local dKeystone = CreateDungeonTopButton("KEYSTONE", "Mythic+",   10 + (70 + 4) * 2)
+    -- Mythic+ on far right
+    local dKeystone = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    dKeystone:SetSize(70, 24)
+    dKeystone:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -28)
+    dKeystone:SetText("Mythic+")
+    f.dungeonTopButtons.KEYSTONE = dKeystone
+
+    -- Mythic just to the left of Mythic+
+    local dMythic = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    dMythic:SetSize(70, 24)
+    dMythic:SetPoint("RIGHT", dKeystone, "LEFT", -4, 0)
+    dMythic:SetText("Mythic")
+    f.dungeonTopButtons.MYTHIC = dMythic
 
     dAll:SetScript("OnClick", function()
-        -- Implemented in LegionRemixLockoutFilter_UI_Dungeon.lua
         if type(LRLF_DungeonSelectAllReady) == "function" then
             LRLF_DungeonSelectAllReady()
         end
@@ -403,6 +463,9 @@ function LRLF_CreateSideWindow()
         LRLF_UpdateDungeonModeButtons()
     end
 
+    --------------------------------------------------
+    -- Scroll area + header text + helper text
+    --------------------------------------------------
     local scrollFrame = CreateFrame("ScrollFrame", "LRLF_ScrollFrame", f, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", 10, -60)
     scrollFrame:SetPoint("BOTTOMRIGHT", -30, 40)
@@ -423,6 +486,7 @@ function LRLF_CreateSideWindow()
     content:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
     scrollFrame:SetScrollChild(content)
 
+    -- Top status / error text (usually empty or very short)
     local text = content:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     text:SetPoint("TOPLEFT", 0, 0)
     text:SetPoint("RIGHT", content, "RIGHT", 0, 0)
@@ -430,21 +494,33 @@ function LRLF_CreateSideWindow()
     text:SetJustifyV("TOP")
     text:SetText("")
 
+    -- Short instructions between top buttons and instance list (small, centered)
+    local instructionText = content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    instructionText:SetPoint("TOPLEFT",  text, "BOTTOMLEFT", 0, -2)
+    instructionText:SetPoint("TOPRIGHT", text, "BOTTOMRIGHT", 0, -2)
+    instructionText:SetJustifyH("CENTER")
+    instructionText:SetJustifyV("TOP")
+    instructionText:SetText("")
+    f.instructionText = instructionText
+
     local unavailableHeader = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     unavailableHeader:SetJustifyH("CENTER")
     unavailableHeader:SetText("")
     unavailableHeader:Hide()
 
-    f.text               = text
-    f.scrollFrame        = scrollFrame
-    f.unavailableHeader  = unavailableHeader
-    f.content            = content
+    f.text              = text
+    f.scrollFrame       = scrollFrame
+    f.unavailableHeader = unavailableHeader
+    f.content           = content
 
+    --------------------------------------------------
+    -- Bottom "Search" button (uses current filters)
+    --------------------------------------------------
     local searchButton = CreateFrame("Button", "LRLF_SearchButton", f, "UIPanelButtonTemplate")
     searchButton:SetHeight(32)
     searchButton:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 10)
     searchButton:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -10, 10)
-    searchButton:SetText("Search with Lockout Filters")
+    searchButton:SetText("Search")
 
     searchButton:SetScript("OnClick", function(self)
         if not LRLF_IsTimerunner or not LRLF_IsTimerunner() then
@@ -460,7 +536,7 @@ function LRLF_CreateSideWindow()
         local isRaid      = (categoryID == 3)
 
         if not searchPanel:IsShown() or (not isDungeon and not isRaid) then
-            UIErrorsFrame:AddMessage("Lockout Filter: Open Legion Dungeons or Raids search first.", 1.0, 0.1, 0.1)
+            UIErrorsFrame:AddMessage("Filter: Open Legion Dungeons or Raids search first.", 1.0, 0.1, 0.1)
             return
         end
 
@@ -473,6 +549,9 @@ function LRLF_CreateSideWindow()
 
     LRLF_SearchButton = searchButton
 
+    --------------------------------------------------
+    -- Close button behavior (collapse to eyeball)
+    --------------------------------------------------
     local close = f.CloseButton or _G[f:GetName() .. "CloseButton"]
     if close then
         close:HookScript("OnClick", function()
@@ -481,10 +560,12 @@ function LRLF_CreateSideWindow()
         end)
     end
 
-    -- Ensure the panel always refreshes for the current kind when it becomes visible,
-    -- so dungeon status squares (green/red/grey) are correct even on first load.
+    -- When shown, always refresh for the current kind and update helper text
     f:SetScript("OnShow", function()
         local kind = LRLF_GetCurrentKind and LRLF_GetCurrentKind() or "raid"
+        if f.instructionText and type(LRLF_GetInstructionText) == "function" then
+            f.instructionText:SetText(LRLF_GetInstructionText(kind))
+        end
         LRLF_RefreshSidePanelText(kind)
     end)
 
@@ -523,6 +604,7 @@ function LRLF_CreateFilterButtons()
     bg:SetBackdropColor(0, 0, 0, 0.85)
     bg:SetBackdropBorderColor(0.8, 0.8, 0.8, 1)
 
+    -- Main filter enable/disable eye icon
     local apply = CreateFrame("Button", "LRLF_FilterApplyIcon", bg)
     apply:SetSize(ICON_SIZE, ICON_SIZE)
     apply:SetPoint("TOPLEFT", bg, "TOPLEFT", 4, -4)
@@ -534,9 +616,9 @@ function LRLF_CreateFilterButtons()
 
     apply:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        local title = LRLF_FilterEnabled and "Lockout Filter Enabled" or "Lockout Filter Disabled"
+        local title = LRLF_FilterEnabled and "Filter Enabled" or "Filter Disabled"
         GameTooltip:SetText(title, 1, 1, 1)
-        GameTooltip:AddLine("Click to toggle whether the lockout filter affects the search results.", nil, nil, nil, true)
+        GameTooltip:AddLine("Click to toggle whether the filter affects the search results.", nil, nil, nil, true)
         GameTooltip:Show()
     end)
     apply:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -561,6 +643,7 @@ function LRLF_CreateFilterButtons()
         end
     end)
 
+    -- One-click signup settings icon
     local settings = CreateFrame("Button", "LRLF_OneClickSettingsIcon", bg)
     settings:SetSize(ICON_SIZE, ICON_SIZE)
     settings:SetPoint("TOPLEFT", bg, "TOPLEFT", 4, -4 - ICON_SIZE - 4)
@@ -629,7 +712,7 @@ function LRLF_CreateToggleButton()
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText("Legion Remix Lockout Filter", 1, 1, 1)
-        GameTooltip:AddLine("Show the Lockout Filter panel.", nil, nil, nil, true)
+        GameTooltip:AddLine("Show the filter panel.", nil, nil, nil, true)
         GameTooltip:Show()
     end)
 
@@ -680,6 +763,10 @@ function LRLF_RefreshSidePanelText(kind)
     LRLF_ShowTopButtonsForKind(kind)
     if kind == "dungeon" and type(LRLF_UpdateDungeonModeButtons) == "function" then
         LRLF_UpdateDungeonModeButtons()
+    end
+
+    if LRLFFrame.instructionText and type(LRLF_GetInstructionText) == "function" then
+        LRLFFrame.instructionText:SetText(LRLF_GetInstructionText(kind))
     end
 
     local infoMap, list, ejErr, lfgErr
@@ -737,9 +824,11 @@ function LRLF_RefreshSidePanelText(kind)
     LRLF_Rows[kind] = LRLF_Rows[kind] or {}
 
     if kind == "dungeon" then
-        LRLF_RefreshDungeonRows(kind, infoMap, list, textHeight, labelPlural)
+        -- Dungeon rows use a more detailed signature; pass the basics and let
+        -- the dungeon UI recompute layout.
+        LRLF_RefreshDungeonRows(kind, infoMap, list, nil, nil, nil, nil, textHeight)
     else
-        LRLF_RefreshRaidRows(kind, infoMap, list, textHeight, labelPlural)
+        LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
     end
 
     LRLF_UpdateFilterEnabledVisualState()
