@@ -419,9 +419,22 @@ end
 function LRLF_BuildRaidDifficultyInfo()
     DebugLog("LRLF_BuildRaidDifficultyInfo: Building raid difficulty info.")
 
-    local raids, ejErr             = LRLF_GetLegionRaids()
-    local availability, lfgErr     = LRLF_GetLegionRaidAvailability()
-    local raidInfo                 = {}
+    -- First pass: pull raids once via EJ.
+    local raids, ejErr = LRLF_GetLegionRaids()
+
+    -- Temporarily override LRLF_GetLegionRaids so availability
+    -- reuses the same list instead of re-hitting EJ.
+    local originalGetLegionRaids = LRLF_GetLegionRaids
+    LRLF_GetLegionRaids = function()
+        return raids, ejErr
+    end
+
+    local availability, lfgErr = LRLF_GetLegionRaidAvailability()
+
+    -- Restore original function no matter what.
+    LRLF_GetLegionRaids = originalGetLegionRaids
+
+    local raidInfo = {}
 
     for _, raid in ipairs(raids) do
         local data = availability[raid.name]
@@ -465,9 +478,22 @@ end
 function LRLF_BuildDungeonDifficultyInfo()
     DebugLog("LRLF_BuildDungeonDifficultyInfo: Building dungeon difficulty info.")
 
-    local dungeons, ejErr          = LRLF_GetLegionDungeons()
-    local availability, lfgErr     = LRLF_GetLegionDungeonAvailability()
-    local dungeonInfo              = {}
+    -- First pass: pull dungeons once via EJ (with Karazhan split).
+    local dungeons, ejErr = LRLF_GetLegionDungeons()
+
+    -- Temporarily override LRLF_GetLegionDungeons so availability
+    -- reuses the same list instead of re-hitting EJ.
+    local originalGetLegionDungeons = LRLF_GetLegionDungeons
+    LRLF_GetLegionDungeons = function()
+        return dungeons, ejErr
+    end
+
+    local availability, lfgErr = LRLF_GetLegionDungeonAvailability()
+
+    -- Restore original.
+    LRLF_GetLegionDungeons = originalGetLegionDungeons
+
+    local dungeonInfo = {}
 
     for _, dungeon in ipairs(dungeons) do
         local data = availability[dungeon.name]
