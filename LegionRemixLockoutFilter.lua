@@ -4,12 +4,17 @@
 local ADDON_NAME, ADDON_TABLE = ...
 
 --------------------------------------------------
--- Slash command stub (infra only, no behavior yet)
+-- Slash command stub (now toggles debug window)
 --------------------------------------------------
 
 SLASH_LRLFDEBUG1 = "/lrlfd"
 SlashCmdList["LRLFDEBUG"] = function(msg)
-    -- Reserved for future debug or commands
+    -- /lrlfd toggles the LRLF debug window (no extra args needed)
+    if type(LRLF_ToggleDebugWindow) == "function" then
+        LRLF_ToggleDebugWindow()
+    else
+        print("|cff00ff00[LRLF]|r Debug window not available.")
+    end
 end
 
 --------------------------------------------------

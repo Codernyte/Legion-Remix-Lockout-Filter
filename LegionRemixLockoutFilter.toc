@@ -11,4 +11,5 @@ LegionRemixLockoutFilter_UI.lua
 LegionRemixLockoutFilter_UI_Dungeon.lua
 LegionRemixLockoutFilter_UI_Raid.lua
 LegionRemixLockoutFilter_OneClick.lua
+LegionRemixLockoutFilter_Debug.lua
 LegionRemixLockoutFilter.lua
