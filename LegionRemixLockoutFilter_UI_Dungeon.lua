@@ -1,5 +1,7 @@
+--######################################################################
 -- LegionRemixLockoutFilter_UI_Dungeon.lua
 -- Dungeon-specific UI logic for Legion Remix Lockout Filter
+--######################################################################
 
 local ADDON_NAME, ADDON_TABLE = ...
 
@@ -38,10 +40,24 @@ end
 
 -- Normalize current dungeon mode into a diffKey we use in FilterState
 local function LRLF_GetCurrentDungeonDiffKey()
-    local modeVal = LRLF_DungeonMode
+    local modeVal     = LRLF_DungeonMode
     local dungeonMode = (modeVal == "KEYSTONE") and "KEYSTONE" or "MYTHIC"
     local diffKey     = (dungeonMode == "KEYSTONE") and "MythicKeystone" or "Mythic"
     return dungeonMode, diffKey
+end
+
+local function LRLF_GetInstructionHeight()
+    if not LRLFFrame or not LRLFFrame.instructionText then
+        return 0
+    end
+
+    local instrText = LRLFFrame.instructionText:GetText()
+    if instrText and instrText ~= "" then
+        local h = LRLFFrame.instructionText:GetStringHeight() or 0
+        return h + 4 -- small gap
+    end
+
+    return 0
 end
 
 ----------------------------------------------------------------------
@@ -105,7 +121,7 @@ function LRLF_DungeonSelectAllReady()
     local filterKind = LRLF_FilterState[kind]
     local sysKind    = LRLF_SystemSelection[kind]
 
-    local dungeonMode, diffKey = LRLF_GetCurrentDungeonDiffKey()
+    local _, diffKey = LRLF_GetCurrentDungeonDiffKey()
 
     for _, dungeon in ipairs(dungeons) do
         local info = infoMap[dungeon.name]
@@ -119,10 +135,11 @@ function LRLF_DungeonSelectAllReady()
                 local isReady
 
                 if diffKey == "MythicKeystone" then
-                    -- In Remix, Mythic+ has no per-run lockout; treat all
-                    -- visible keystone dungeons as "ready".
+                    -- For Mythic+, respect availability flag:
+                    --   available     -> ready
+                    --   not available -> not ready (e.g. Seat of the Triumvirate)
                     isLocked = false
-                    isReady  = true
+                    isReady  = d.available and true or false
                 else
                     isLocked = d.hasLockout and true or false
                     isReady  = (d.available and not isLocked)
@@ -282,17 +299,8 @@ function LRLF_RefreshDungeonRows(
     textHeight   = textFS:GetStringHeight() or 0
     content      = LRLFFrame.scrollFrame:GetScrollChild()
 
-    -- Account for helper instruction text height so rows don't overlap it
-    local instructionHeight = 0
-    if LRLFFrame.instructionText then
-        local instrText = LRLFFrame.instructionText:GetText()
-        if instrText and instrText ~= "" then
-            instructionHeight = LRLFFrame.instructionText:GetStringHeight() or 0
-            instructionHeight = instructionHeight + 4 -- small gap
-        end
-    end
-
-    local headerHeight = (textHeight or 0) + instructionHeight
+    local instructionHeight = LRLF_GetInstructionHeight()
+    local headerHeight      = (textHeight or 0) + instructionHeight
 
     y        = -headerHeight - 8
     rowIndex = 1
@@ -344,11 +352,12 @@ function LRLF_RefreshDungeonRows(
                     local isUnavailable
 
                     if diffKey == "MythicKeystone" then
-                        -- In Remix, treat all visible keystone dungeons as ready:
-                        -- no lockouts, no "unavailable" tooltip conflicts.
+                        -- In Mythic+ mode, respect the actual availability:
+                        --   available     -> ready
+                        --   not available -> unavailable (e.g. Seat of the Triumvirate)
                         isLocked      = false
-                        isReady       = true
-                        isUnavailable = false
+                        isReady       = d.available and true or false
+                        isUnavailable = (not d.available)
                     else
                         isLocked      = d.hasLockout and (diffKey == "Mythic")
                         isReady       = (d.available and not isLocked)
@@ -370,11 +379,12 @@ function LRLF_RefreshDungeonRows(
 
                     if isReady or isLocked then
                         table.insert(availableEntries, {
-                            info     = info,
-                            instName = instName,
-                            diff     = d,
-                            isReady  = isReady,
-                            isLocked = isLocked,
+                            info          = info,
+                            instName      = instName,
+                            diff          = d,
+                            isReady       = isReady,
+                            isLocked      = isLocked,
+                            isUnavailable = isUnavailable,
                         })
                     else
                         -- Has this difficulty in principle, but not
@@ -387,8 +397,16 @@ function LRLF_RefreshDungeonRows(
                 else
                     -- No entry for this diffKey:
                     --   * Mythic tab: dungeon exists but has no Mythic diff -> unavailable.
-                    --   * Mythic+ tab: dungeon has no keystone diff at all -> skip entirely.
+                    --   * Mythic+ tab: dungeon has no keystone diff at all -> normally skip,
+                    --     but we still want Seat of the Triumvirate to appear as unavailable.
                     if dungeonMode == "MYTHIC" then
+                        table.insert(unavailableEntries, {
+                            info     = info,
+                            instName = instName,
+                        })
+                    elseif dungeonMode == "KEYSTONE"
+                       and instName == "Seat of the Triumvirate"
+                    then
                         table.insert(unavailableEntries, {
                             info     = info,
                             instName = instName,
@@ -400,14 +418,17 @@ function LRLF_RefreshDungeonRows(
     end
 
     ------------------------------------------------------------------
-    -- Build rows for available dungeons (with green/red squares)
+    -- Build rows for available dungeons
+    -- Mythic: show status icon
+    -- Mythic+: NO status icon (filter-only view)
     ------------------------------------------------------------------
 
     for _, data in ipairs(availableEntries) do
-        local instName = data.instName
-        local d        = data.diff
-        local isReady  = data.isReady
-        local isLocked = data.isLocked
+        local instName      = data.instName
+        local d             = data.diff
+        local isReady       = data.isReady
+        local isLocked      = data.isLocked
+        local isUnavailable = data.isUnavailable or false
 
         local instState = filterKind[instName]
 
@@ -478,32 +499,44 @@ function LRLF_RefreshDungeonRows(
             end
         end
 
-        -- Single-diff status for this mode
-        LRLF_SetDiffStatus(row, diffKey, isReady, isLocked, false, d.lockoutReset)
+        -- Single-diff status for this mode (used by tooltip + icon)
+        LRLF_SetDiffStatus(row, diffKey, isReady, isLocked, isUnavailable, d.lockoutReset)
 
         local selected = instState and instState[diffKey]
         row.allCheck:SetChecked(selected and true or false)
         row.allCheck:Enable()
         row.allCheck:SetAlpha(1.0)
 
-        -- Colored state square (green = ready, red = locked)
-        if not row.stateIcon then
-            local tex = row:CreateTexture(nil, "ARTWORK")
-            tex:SetSize(10, 10)
-            tex:SetPoint("RIGHT", row, "RIGHT", -4, -2)
-            row.stateIcon = tex
-            row.stateIcon.row      = row
-            row.stateIcon.diffName = diffKey
-            row.stateIcon:SetScript("OnEnter", LRLF_Diff_OnEnter)
-            row.stateIcon:SetScript("OnLeave", LRLF_Diff_OnLeave)
-        end
+        -- Status icon:
+        --   * Mythic: show colored square + tooltip
+        --   * Mythic+: no status symbol at all
+        if dungeonMode == "MYTHIC" then
+            if not row.stateIcon then
+                local tex = row:CreateTexture(nil, "ARTWORK")
+                tex:SetSize(10, 10)
+                tex:SetPoint("RIGHT", row, "RIGHT", -4, -2)
+                row.stateIcon = tex
+                row.stateIcon.row      = row
+                row.stateIcon.diffName = diffKey
+                row.stateIcon:SetScript("OnEnter", LRLF_Diff_OnEnter)
+                row.stateIcon:SetScript("OnLeave", LRLF_Diff_OnLeave)
+            end
 
-        local icon = row.stateIcon
-        icon:Show()
-        if isLocked then
-            icon:SetColorTexture(1.0, 0.2, 0.2, 1.0) -- red
+            local icon = row.stateIcon
+            icon:Show()
+
+            if isUnavailable then
+                icon:SetColorTexture(0.5, 0.5, 0.5, 1.0) -- grey (should not normally hit here)
+            elseif isLocked then
+                icon:SetColorTexture(1.0, 0.2, 0.2, 1.0) -- red
+            else
+                icon:SetColorTexture(0.2, 1.0, 0.2, 1.0) -- green (ready)
+            end
         else
-            icon:SetColorTexture(0.2, 1.0, 0.2, 1.0) -- green
+            -- Mythic+ mode: hide any existing state icon
+            if row.stateIcon then
+                row.stateIcon:Hide()
+            end
         end
 
         LRLF_SetRowInteractive(row, LRLF_FilterEnabled)
@@ -513,7 +546,9 @@ function LRLF_RefreshDungeonRows(
     end
 
     ------------------------------------------------------------------
-    -- "Currently unavailable" header + rows (no squares)
+    -- "Currently unavailable" header + rows
+    -- Mythic: show grey status icon
+    -- Mythic+: text only, NO status symbol
     ------------------------------------------------------------------
 
     local hasUnavailable = (#unavailableEntries > 0)
@@ -533,8 +568,8 @@ function LRLF_RefreshDungeonRows(
             headerFS:SetPoint("TOP", content, "TOP", 0, y)
 
             local headerHeight = headerFS:GetStringHeight() or 0
-            -- Close the gap between the header and first unavailable row by ~8px
-            y = y - headerHeight    -- was: headerHeight - 8
+            -- Close the gap between the header and first unavailable row
+            y = y - headerHeight
         else
             LRLFFrame.unavailableHeader:Hide()
         end
@@ -592,16 +627,48 @@ function LRLF_RefreshDungeonRows(
 
             row.nameText:EnableMouse(false)
 
-            -- No colored square for unavailable rows
-            if row.stateIcon then
-                row.stateIcon:Hide()
+            -- Status indicator for unavailable:
+            --   Mythic   -> grey square + tooltip
+            --   Mythic+  -> no status symbol, just text
+            if dungeonMode == "MYTHIC" then
+                if not row.stateIcon then
+                    local tex = row:CreateTexture(nil, "ARTWORK")
+                    tex:SetSize(10, 10)
+                    tex:SetPoint("RIGHT", row, "RIGHT", -4, -2)
+                    row.stateIcon = tex
+                    row.stateIcon.row      = row
+                    row.stateIcon.diffName = diffKey
+                    row.stateIcon:SetScript("OnEnter", LRLF_Diff_OnEnter)
+                    row.stateIcon:SetScript("OnLeave", LRLF_Diff_OnLeave)
+                end
+
+                row.stateIcon:Show()
+                row.stateIcon:SetColorTexture(0.5, 0.5, 0.5, 1.0)
+                row.stateIcon.row      = row
+                row.stateIcon.diffName = diffKey
+
+                -- Mark this diffKey as unavailable so tooltip shows correctly
+                if row.diffStatus then
+                    for k in pairs(row.diffStatus) do
+                        row.diffStatus[k] = nil
+                    end
+                end
+                LRLF_SetDiffStatus(row, diffKey, false, false, true, nil)
+            else
+                -- Mythic+ mode: hide any state icon and just treat as text-only
+                if row.stateIcon then
+                    row.stateIcon:Hide()
+                end
+
+                if row.diffStatus then
+                    for k in pairs(row.diffStatus) do
+                        row.diffStatus[k] = nil
+                    end
+                end
+                -- We don't strictly need diffStatus in Keystone mode, since
+                -- there is no status icon / tooltip there.
             end
 
-            if row.diffStatus then
-                for k in pairs(row.diffStatus) do
-                    row.diffStatus[k] = nil
-                end
-            end
             if row.activeDiffs then
                 for k in pairs(row.activeDiffs) do
                     row.activeDiffs[k] = nil
@@ -625,16 +692,8 @@ function LRLF_RefreshDungeonRows(
         end
     end
 
-    local instructionHeightForTotal = 0
-    if LRLFFrame.instructionText then
-        local instrText = LRLFFrame.instructionText:GetText()
-        if instrText and instrText ~= "" then
-            instructionHeightForTotal = LRLFFrame.instructionText:GetStringHeight() or 0
-            instructionHeightForTotal = instructionHeightForTotal + 4
-        end
-    end
-
-    local headerHeightTotal = (textHeight or 0) + instructionHeightForTotal
+    local instructionHeightForTotal = LRLF_GetInstructionHeight()
+    local headerHeightTotal         = (textHeight or 0) + instructionHeightForTotal
 
     local totalHeight = (headerHeightTotal + 8) + ((rowIndex - 1) * (rowHeight + spacing)) + 20
     if totalHeight < 1 then
@@ -651,40 +710,31 @@ end
 -- Top button click helpers (wired by core UI)
 ----------------------------------------------------------------------
 
+local function LRLF_SetDungeonModeAndRefresh(mode)
+    LRLF_DungeonMode = mode
+    LRLF_UpdateDungeonModeButtons()
+    LRLF_RefreshSidePanelText("dungeon")
+
+    if LRLF_IsTimerunner and LRLF_IsTimerunner()
+        and LFGListFrame and LFGListFrame.SearchPanel
+        and LFGListSearchPanel_DoSearch
+    then
+        local searchPanel = LFGListFrame.SearchPanel
+        if searchPanel:IsShown() and searchPanel.categoryID == 2 then
+            LRLF_LastSearchWasFiltered = true
+            LFGListSearchPanel_DoSearch(searchPanel)
+        end
+    end
+end
+
 function LRLF_DungeonTopButton_All_OnClick()
     LRLF_DungeonSelectAllReady()
 end
 
 function LRLF_DungeonTopButton_Mythic_OnClick()
-    LRLF_DungeonMode = "MYTHIC"
-    LRLF_UpdateDungeonModeButtons()
-    LRLF_RefreshSidePanelText("dungeon")
-
-    if LRLF_IsTimerunner and LRLF_IsTimerunner()
-        and LFGListFrame and LFGListFrame.SearchPanel
-        and LFGListSearchPanel_DoSearch
-    then
-        local searchPanel = LFGListFrame.SearchPanel
-        if searchPanel:IsShown() and searchPanel.categoryID == 2 then
-            LRLF_LastSearchWasFiltered = true
-            LFGListSearchPanel_DoSearch(searchPanel)
-        end
-    end
+    LRLF_SetDungeonModeAndRefresh("MYTHIC")
 end
 
 function LRLF_DungeonTopButton_Keystone_OnClick()
-    LRLF_DungeonMode = "KEYSTONE"
-    LRLF_UpdateDungeonModeButtons()
-    LRLF_RefreshSidePanelText("dungeon")
-
-    if LRLF_IsTimerunner and LRLF_IsTimerunner()
-        and LFGListFrame and LFGListFrame.SearchPanel
-        and LFGListSearchPanel_DoSearch
-    then
-        local searchPanel = LFGListFrame.SearchPanel
-        if searchPanel:IsShown() and searchPanel.categoryID == 2 then
-            LRLF_LastSearchWasFiltered = true
-            LFGListSearchPanel_DoSearch(searchPanel)
-        end
-    end
+    LRLF_SetDungeonModeAndRefresh("KEYSTONE")
 end
