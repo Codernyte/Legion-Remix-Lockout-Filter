@@ -13,6 +13,16 @@ local LRLF_LFG = ADDON_TABLE.LFG or {}
 LRLF_DungeonMode = LRLF_DungeonMode or "MYTHIC"
 
 ----------------------------------------------------------------------
+-- Local debug helper
+----------------------------------------------------------------------
+
+local function DebugLog(msg)
+    if type(LRLF_DebugLog) == "function" then
+        LRLF_DebugLog(msg)
+    end
+end
+
+----------------------------------------------------------------------
 -- Local helpers
 -- Core UI provides:
 --   LRLF_SetDiffStatus(row, diffName, isReady, isLocked, isUnavailable, lockoutReset)
@@ -31,6 +41,7 @@ local function EnsureDungeonRow(rowsByKind, content, index)
         row.activeDiffs = row.activeDiffs or {}
         row.diffStatus  = row.diffStatus  or {}
         rowsByKind[index] = row
+        DebugLog(("DungeonUI: Created new row frame index=%d."):format(index))
     end
     row:Show()
     row.diffStatus  = row.diffStatus  or {}
@@ -86,7 +97,7 @@ function LRLF_DungeonAllCheckbox_OnClick(self)
     local instState = filterKind[instName]
     local sysInst   = sysKind[instName]
 
-    local _, diffKey = LRLF_GetCurrentDungeonDiffKey()
+    local dungeonMode, diffKey = LRLF_GetCurrentDungeonDiffKey()
 
     local checked = self:GetChecked() and true or false
 
@@ -98,6 +109,10 @@ function LRLF_DungeonAllCheckbox_OnClick(self)
 
     instState[diffKey] = checked
     sysInst[diffKey]   = false -- user-managed for this diffKey
+
+    DebugLog(("DungeonUI: 'All' checkbox clicked for '%s' (mode=%s, diffKey=%s, checked=%s, isAllUnavailable=%s)."):format(
+        instName, tostring(dungeonMode), tostring(diffKey), tostring(checked), tostring(row.isAllUnavailable)
+    ))
 
     -- For dungeons, the "All" box == this one diffKey
     row.allCheck:SetChecked(checked)
@@ -112,6 +127,7 @@ function LRLF_DungeonSelectAllReady()
 
     local infoMap, dungeons = LRLF_LFG.BuildDungeonDifficultyInfo()
     if not infoMap or not dungeons then
+        DebugLog("DungeonUI: DungeonSelectAllReady aborted (no infoMap or dungeons).")
         return
     end
 
@@ -121,7 +137,13 @@ function LRLF_DungeonSelectAllReady()
     local filterKind = LRLF_FilterState[kind]
     local sysKind    = LRLF_SystemSelection[kind]
 
-    local _, diffKey = LRLF_GetCurrentDungeonDiffKey()
+    local dungeonMode, diffKey = LRLF_GetCurrentDungeonDiffKey()
+
+    DebugLog(("DungeonUI: SelectAllReady(mode=%s, diffKey=%s) starting. TotalDungeons=%d."):format(
+        tostring(dungeonMode), tostring(diffKey), #dungeons
+    ))
+
+    local readyCount = 0
 
     for _, dungeon in ipairs(dungeons) do
         local info = infoMap[dungeon.name]
@@ -153,9 +175,17 @@ function LRLF_DungeonSelectAllReady()
 
                 instState[diffKey] = isReady
                 sysInst[diffKey]   = true
+
+                if isReady then
+                    readyCount = readyCount + 1
+                end
             end
         end
     end
+
+    DebugLog(("DungeonUI: SelectAllReady(mode=%s, diffKey=%s) complete. ReadyCount=%d."):format(
+        tostring(dungeonMode), tostring(diffKey), readyCount
+    ))
 
     LRLF_RefreshSidePanelText("dungeon")
 end
@@ -189,6 +219,8 @@ function LRLF_UpdateDungeonModeButtons()
     if btnAll then
         btnAll:GetFontString():SetTextColor(1, 1, 1)
     end
+
+    DebugLog(("DungeonUI: UpdateDungeonModeButtons called (mode=%s)."):format(tostring(LRLF_DungeonMode)))
 end
 
 ----------------------------------------------------------------------
@@ -210,7 +242,11 @@ local function LRLF_ExclusiveDungeonInstance(row)
     local filterKind = LRLF_FilterState[kind]
     local sysKind    = LRLF_SystemSelection[kind]
 
-    local _, diffKey = LRLF_GetCurrentDungeonDiffKey()
+    local dungeonMode, diffKey = LRLF_GetCurrentDungeonDiffKey()
+
+    DebugLog(("DungeonUI: Exclusive instance select for '%s' (mode=%s, diffKey=%s)."):format(
+        instName, tostring(dungeonMode), tostring(diffKey)
+    ))
 
     -- Clear only the active diffKey across all dungeons
     for otherName, instState in pairs(filterKind) do
@@ -269,6 +305,10 @@ function LRLF_RefreshDungeonRows(
     -- Tight layout: slightly shorter rows and reduced gap between rows
     rowHeight = 26
     spacing   = -7   -- was -5; reduce space between rows by ~2px
+
+    DebugLog(("DungeonUI: RefreshDungeonRows called; listCount=%s."):format(
+        list and #list or 0
+    ))
 
     ------------------------------------------------------------------
     -- Build ordered list of entries
@@ -416,6 +456,10 @@ function LRLF_RefreshDungeonRows(
             end
         end
     end
+
+    DebugLog(("DungeonUI: Classified dungeons (mode=%s, diffKey=%s) -> available=%d, unavailable=%d."):format(
+        tostring(dungeonMode), tostring(diffKey), #availableEntries, #unavailableEntries
+    ))
 
     ------------------------------------------------------------------
     -- Build rows for available dungeons
@@ -576,6 +620,7 @@ function LRLF_RefreshDungeonRows(
     end
 
     if hasUnavailable then
+        DebugLog(("DungeonUI: Rendering %d 'currently unavailable' dungeon rows."):format(#unavailableEntries))
         for _, data in ipairs(unavailableEntries) do
             local instName = data.instName
 
@@ -703,6 +748,10 @@ function LRLF_RefreshDungeonRows(
     content:SetWidth(LRLFFrame.scrollFrame:GetWidth())
     LRLFFrame.scrollFrame:UpdateScrollChildRect()
 
+    DebugLog(("DungeonUI: RefreshDungeonRows complete. Mode=%s, diffKey=%s, RenderedRows=%d, totalHeight=%d."):format(
+        tostring(dungeonMode), tostring(diffKey), rowIndex - 1, totalHeight
+    ))
+
     LRLF_UpdateFilterEnabledVisualState()
 end
 
@@ -712,6 +761,7 @@ end
 
 local function LRLF_SetDungeonModeAndRefresh(mode)
     LRLF_DungeonMode = mode
+    DebugLog(("DungeonUI: SetDungeonModeAndRefresh -> mode=%s."):format(tostring(mode)))
     LRLF_UpdateDungeonModeButtons()
     LRLF_RefreshSidePanelText("dungeon")
 
@@ -722,19 +772,23 @@ local function LRLF_SetDungeonModeAndRefresh(mode)
         local searchPanel = LFGListFrame.SearchPanel
         if searchPanel:IsShown() and searchPanel.categoryID == 2 then
             LRLF_LastSearchWasFiltered = true
+            DebugLog("DungeonUI: Triggering LFGListSearchPanel_DoSearch after mode change.")
             LFGListSearchPanel_DoSearch(searchPanel)
         end
     end
 end
 
 function LRLF_DungeonTopButton_All_OnClick()
+    DebugLog("DungeonUI: Top button 'All' clicked -> DungeonSelectAllReady.")
     LRLF_DungeonSelectAllReady()
 end
 
 function LRLF_DungeonTopButton_Mythic_OnClick()
+    DebugLog("DungeonUI: Top button 'Mythic' clicked.")
     LRLF_SetDungeonModeAndRefresh("MYTHIC")
 end
 
 function LRLF_DungeonTopButton_Keystone_OnClick()
+    DebugLog("DungeonUI: Top button 'Mythic+' clicked.")
     LRLF_SetDungeonModeAndRefresh("KEYSTONE")
 end

@@ -1,207 +1,141 @@
 --######################################################################
 -- LegionRemixLockoutFilter_Debug.lua
--- Standalone debug window + /lrlf debug toggle + LRLF_DebugPrint()
+-- Debug log window + logging helpers
 --######################################################################
 
 local ADDON_NAME, ADDON_TABLE = ...
 
-----------------------------------------------------------------------
--- Internal state
-----------------------------------------------------------------------
+-- Global debug flags/state (can later be moved to SavedVariables if desired)
+LRLF_DebugEnabled = (LRLF_DebugEnabled ~= false)
+LRLF_DebugLines   = LRLF_DebugLines or {}
 
-local debugFrame       = nil
-local debugScrollFrame = nil
-local debugEditBox     = nil
-local debugLines       = {}
-local internalChanging = false
+local MAX_LINES   = 2000
 
-----------------------------------------------------------------------
--- Small helpers
-----------------------------------------------------------------------
+local debugFrame
+local scrollFrame
+local editBox
 
-local function DebugTrim(msg)
+--------------------------------------------------
+-- Internal helpers
+--------------------------------------------------
+
+local function RebuildLogText()
+    if not editBox then
+        return
+    end
+
+    local buf = {}
+    for i, line in ipairs(LRLF_DebugLines) do
+        buf[#buf + 1] = line
+    end
+
+    local text = table.concat(buf, "\n")
+    editBox:SetText(text)
+
+    -- leave cursor at top; user can scroll
+    editBox:HighlightText(0, 0)
+end
+
+--------------------------------------------------
+-- Global logging function
+--------------------------------------------------
+
+function LRLF_DebugLog(msg)
+    if not LRLF_DebugEnabled then
+        return
+    end
+
     if type(msg) ~= "string" then
-        return ""
-    end
-    if strtrim then
-        return strtrim(msg)
-    end
-    return msg:match("^%s*(.-)%s*$") or msg
-end
-
-local function DebugGetFullText()
-    return table.concat(debugLines, "\n")
-end
-
--- Ensure edit box text matches our buffer and is scrollable
-local function DebugRefreshText()
-    if not debugEditBox or not debugScrollFrame then
-        return
+        msg = tostring(msg)
     end
 
-    internalChanging = true
-    debugEditBox:SetText(DebugGetFullText())
-    internalChanging = false
+    local timeStr = date("%H:%M:%S")
+    local line    = string.format("[%s] %s", timeStr, msg)
 
-    -- Resize edit box so scrolling works properly
-    local textHeight = 0
-    if debugEditBox.GetTextHeight then
-        textHeight = debugEditBox:GetTextHeight() or 0
-    end
-    if textHeight < 1 then
-        textHeight = 1
-    end
-    debugEditBox:SetHeight(textHeight + 20)
+    table.insert(LRLF_DebugLines, line)
 
-    -- Scroll to bottom
-    debugScrollFrame:UpdateScrollChildRect()
-    local maxScroll = debugScrollFrame:GetVerticalScrollRange() or 0
-    debugScrollFrame:SetVerticalScroll(maxScroll)
-end
-
-----------------------------------------------------------------------
--- Global debug print function
--- Adds a line of text to the debug buffer and updates the window
-----------------------------------------------------------------------
-
-function LRLF_DebugPrint(message)
-    if message == nil then
-        return
-    end
-
-    if type(message) ~= "string" then
-        message = tostring(message)
-    end
-
-    table.insert(debugLines, message)
-
-    -- Simple cap to avoid unbounded growth
-    local maxLines = 2000
-    if #debugLines > maxLines then
-        local excess = #debugLines - maxLines
-        for i = 1, excess do
-            table.remove(debugLines, 1)
+    -- Trim to max size
+    if #LRLF_DebugLines > MAX_LINES then
+        local overflow = #LRLF_DebugLines - MAX_LINES
+        for i = 1, overflow do
+            table.remove(LRLF_DebugLines, 1)
         end
     end
 
-    if debugEditBox and debugScrollFrame then
-        DebugRefreshText()
+    if scrollFrame and editBox then
+        local prevScroll = scrollFrame:GetVerticalScroll() or 0
+        RebuildLogText()
+
+        -- auto-scroll to bottom if user was already near the bottom
+        local max = scrollFrame:GetVerticalScrollRange() or 0
+        if prevScroll >= max - 50 then
+            scrollFrame:SetVerticalScroll(max)
+        end
     end
 end
 
-----------------------------------------------------------------------
--- Create debug window (only once)
-----------------------------------------------------------------------
+--------------------------------------------------
+-- Debug window UI
+--------------------------------------------------
 
 local function CreateDebugWindow()
     if debugFrame then
         return
     end
 
-    local f = CreateFrame("Frame", "LRLF_DebugFrame", UIParent, "BasicFrameTemplateWithInset")
-    debugFrame = f
+    debugFrame = CreateFrame("Frame", "LRLF_DebugFrame", UIParent, "BasicFrameTemplateWithInset")
+    debugFrame:SetSize(700, 400)
+    debugFrame:SetPoint("CENTER")
+    debugFrame:Hide()
 
-    -- Wider and taller debug window
-    f:SetSize(750, 350)
-    f:SetPoint("CENTER")
-    f:SetFrameStrata("HIGH")
+    -- Make the debug window movable
+    debugFrame:SetMovable(true)
+    debugFrame:EnableMouse(true)
+    debugFrame:RegisterForDrag("LeftButton")
+    debugFrame:SetScript("OnDragStart", debugFrame.StartMoving)
+    debugFrame:SetScript("OnDragStop", debugFrame.StopMovingOrSizing)
 
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", f.StartMoving)
-    f:SetScript("OnDragStop", f.StopMovingOrSizing)
+    debugFrame.title = debugFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    debugFrame.title:SetPoint("CENTER", debugFrame.TitleBg, "CENTER", 0, 0)
+    debugFrame.title:SetText("Legion Remix Lockout Filter - Debug Log")
 
-    -- Title
-    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.title:SetPoint("CENTER", f.TitleBg, "CENTER", 0, 0)
-    f.title:SetText("LRLF Debug")
+    -- "Clear" button in the title bar (not in the text body)
+    local clearButton = CreateFrame("Button", nil, debugFrame, "UIPanelButtonTemplate")
+    clearButton:SetSize(60, 18)
+    clearButton:SetText("Clear")
+    -- Anchor inside the title bar, a bit left of the close button
+    clearButton:SetPoint("RIGHT", debugFrame.TitleBg, "RIGHT", -60, 0)
+    clearButton:SetScript("OnClick", function()
+        -- Wipe the current log buffer and refresh the view
+        wipe(LRLF_DebugLines)
+        RebuildLogText()
+        if scrollFrame then
+            scrollFrame:SetVerticalScroll(0)
+        end
+    end)
 
-    -- Close button
-    local close = f.CloseButton or _G[f:GetName() .. "CloseButton"]
-    if close then
-        close:SetScript("OnClick", function()
-            f:Hide()
-        end)
-    end
+    -- Scrollframe + edit box for log text
+    scrollFrame = CreateFrame("ScrollFrame", "LRLF_DebugScrollFrame", debugFrame, "UIPanelScrollFrameTemplate")
+    scrollFrame:SetPoint("TOPLEFT", debugFrame, "TOPLEFT", 10, -30)
+    scrollFrame:SetPoint("BOTTOMRIGHT", debugFrame, "BOTTOMRIGHT", -30, 10)
 
-    ------------------------------------------------------------------
-    -- Scroll frame + read-only edit box
-    ------------------------------------------------------------------
-
-    local scroll = CreateFrame("ScrollFrame", "LRLF_DebugScrollFrame", f, "UIPanelScrollFrameTemplate")
-    debugScrollFrame = scroll
-
-    scroll:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -28)
-    scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -30, 50)
-
-    local editBox = CreateFrame("EditBox", "LRLF_DebugEditBox", scroll)
-    debugEditBox = editBox
-
+    editBox = CreateFrame("EditBox", "LRLF_DebugEditBox", scrollFrame)
     editBox:SetMultiLine(true)
-    editBox:SetFontObject("ChatFontNormal" or "GameFontHighlightSmall")
+    editBox:SetFontObject(ChatFontNormal)
+    editBox:SetWidth(650)
     editBox:SetAutoFocus(false)
     editBox:EnableMouse(true)
-    editBox:SetWidth(scroll:GetWidth())
-
-    -- Make it effectively read-only: cancel user edits
-    editBox:SetScript("OnChar", function(self)
-        self:ClearFocus()
-    end)
-
-    editBox:SetScript("OnTextChanged", function(self, userInput)
-        if not userInput or internalChanging then
-            return
-        end
-
-        -- Revert any user-typed changes
-        internalChanging = true
-        self:SetText(DebugGetFullText())
-        internalChanging = false
-        self:ClearFocus()
-    end)
-
     editBox:SetScript("OnEscapePressed", function(self)
         self:ClearFocus()
     end)
 
-    scroll:SetScrollChild(editBox)
+    scrollFrame:SetScrollChild(editBox)
 
-    ------------------------------------------------------------------
-    -- Buttons: Clear + Test
-    ------------------------------------------------------------------
+    -- Allow closing with Esc
+    table.insert(UISpecialFrames, debugFrame:GetName())
 
-    local clearBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    clearBtn:SetSize(80, 22)
-    clearBtn:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 10)
-    clearBtn:SetText("Clear")
-
-    clearBtn:SetScript("OnClick", function()
-        debugLines = {}
-        DebugRefreshText()
-    end)
-
-    local testBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    testBtn:SetSize(120, 22)
-    testBtn:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -10, 10)
-    testBtn:SetText("Test Fill")
-
-    testBtn:SetScript("OnClick", function()
-        for i = 1, 100 do
-            LRLF_DebugPrint(string.format("Lorem ipsum dolor sit amet %d", i))
-        end
-    end)
-
-    -- Start hidden; slash command will toggle it
-    f:Hide()
-
-    -- Initial refresh
-    DebugRefreshText()
+    RebuildLogText()
 end
-
-----------------------------------------------------------------------
--- Global toggle function for the debug window
-----------------------------------------------------------------------
 
 function LRLF_ToggleDebugWindow()
     if not debugFrame then
@@ -212,22 +146,34 @@ function LRLF_ToggleDebugWindow()
         debugFrame:Hide()
     else
         debugFrame:Show()
-        DebugRefreshText()
     end
 end
 
-----------------------------------------------------------------------
--- Slash command: /lrlf debug
-----------------------------------------------------------------------
+--------------------------------------------------
+-- Error capture: only log errors from this addon
+--------------------------------------------------
 
-SLASH_LRLF1 = "/lrlf"
+do
+    local origHandler = geterrorhandler()
 
-SlashCmdList["LRLF"] = function(msg)
-    msg = DebugTrim(msg):lower()
+    seterrorhandler(function(msg)
+        if type(msg) == "string" then
+            -- Only log if it looks like it's from this addon
+            if msg:find("LegionRemixLockoutFilter")
+               or (ADDON_NAME and msg:find(ADDON_NAME))
+            then
+                LRLF_DebugLog("Lua error: " .. msg)
+            end
+        end
 
-    if msg == "debug" or msg == "dbg" then
-        LRLF_ToggleDebugWindow()
-    else
-        print("|cff00ff00[LRLF]|r Usage: /lrlf debug")
-    end
+        if origHandler then
+            origHandler(msg)
+        end
+    end)
 end
+
+--------------------------------------------------
+-- Initial marker
+--------------------------------------------------
+
+LRLF_DebugLog("Debug system initialized.")

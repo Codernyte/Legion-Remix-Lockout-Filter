@@ -8,6 +8,16 @@ local ADDON_NAME, ADDON_TABLE = ...
 local RAID_KIND = "raid"
 
 --------------------------------------------------
+-- Local debug helper
+--------------------------------------------------
+
+local function DebugLog(msg)
+    if type(LRLF_DebugLog) == "function" then
+        LRLF_DebugLog(msg)
+    end
+end
+
+--------------------------------------------------
 -- Shared raid-state helpers
 --------------------------------------------------
 
@@ -25,6 +35,7 @@ local function EnsureRaidInstanceState(instName)
 end
 
 local function LRLF_ExclusiveClearAll()
+    DebugLog("RaidUI: ExclusiveClearAll -> clearing all raid instance difficulty selections.")
     local filterKind, sysKind = EnsureRaidKindState()
 
     for instName, instState in pairs(filterKind) do
@@ -56,6 +67,8 @@ local function LRLF_SelectRaidInstanceReadyDiffs(row)
     local instName                 = row.instanceName
     local _, _, instState, sysInst = EnsureRaidInstanceState(instName)
 
+    DebugLog(("RaidUI: Name left-click on '%s' -> toggle ready difficulties."):format(instName))
+
     -- First, see if any ready diff is currently selected
     local hasSelectedReady = false
     for _, diffName in ipairs(DIFF_ORDER) do
@@ -68,12 +81,14 @@ local function LRLF_SelectRaidInstanceReadyDiffs(row)
     end
 
     if hasSelectedReady then
+        DebugLog(("RaidUI: '%s' has ready diffs selected; clearing all diffs for this instance."):format(instName))
         -- Toggle OFF: clear all diffs for this instance
         for _, diffName in ipairs(DIFF_ORDER) do
             instState[diffName] = false
             sysInst[diffName]   = false
         end
     else
+        DebugLog(("RaidUI: '%s' has no ready diffs selected; selecting all ready/unlocked diffs."):format(instName))
         -- Toggle ON: select only ready, non-locked, non-unavailable diffs
         for _, diffName in ipairs(DIFF_ORDER) do
             local status        = row.diffStatus and row.diffStatus[diffName]
@@ -99,7 +114,9 @@ end
 function LRLF_ExclusiveRaidInstanceAllDiffs(row)
     if not row or row.kind ~= RAID_KIND or not row.instanceName then return end
 
-    local instName                 = row.instanceName
+    local instName = row.instanceName
+    DebugLog(("RaidUI: Name right-click on '%s' -> exclusive select all ready difficulties."):format(instName))
+
     LRLF_ExclusiveClearAll()
     local _, _, instState, sysInst = EnsureRaidInstanceState(instName)
 
@@ -122,13 +139,16 @@ function LRLF_ExclusiveRaidDifficulty(row, diffName)
         return
     end
 
+    local instName = row.instanceName
+    DebugLog(("RaidUI: Difficulty right-click on '%s' for diff=%s -> exclusive select."):format(instName, tostring(diffName)))
+
     LRLF_ExclusiveClearAll()
 
-    local instName                 = row.instanceName
     local _, _, instState, sysInst = EnsureRaidInstanceState(instName)
 
     local status = row.diffStatus and row.diffStatus[diffName]
     if status and status.isUnavailable then
+        DebugLog(("RaidUI: '%s' diff=%s is unavailable; exclusive select aborted."):format(instName, tostring(diffName)))
         LRLF_RefreshSidePanelText(RAID_KIND)
         return
     end
@@ -153,6 +173,9 @@ local function LRLF_OnAllCheckboxClick(self)
     local _, _, instState, sysInst = EnsureRaidInstanceState(instName)
 
     local checked = self:GetChecked() and true or false
+    DebugLog(("RaidUI: 'All' checkbox clicked for '%s' (kind=%s, checked=%s)."):format(
+        instName, tostring(row.kind), tostring(checked)
+    ))
 
     if row.kind == RAID_KIND and row.diffChecks then
         for _, diffName in ipairs(DIFF_ORDER) do
@@ -201,6 +224,10 @@ local function LRLF_OnDifficultyCheckboxClick(self)
     instState[diffName] = checked
     sysInst[diffName]   = false
 
+    DebugLog(("RaidUI: Diff checkbox click on '%s' diff=%s -> checked=%s."):format(
+        instName, tostring(diffName), tostring(checked)
+    ))
+
     LRLF_UpdateRowAllCheckbox(row, instState)
 end
 
@@ -220,6 +247,11 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
     kind = kind or RAID_KIND
     LRLF_Rows[kind] = LRLF_Rows[kind] or {}
     local rowsByKind = LRLF_Rows[kind]
+
+    DebugLog(("RaidUI: RefreshRaidRows(kind=%s) called; listCount=%s."):format(
+        tostring(kind),
+        list and #list or 0
+    ))
 
     local content   = LRLFFrame.content
     local spacing   = 4
@@ -278,6 +310,10 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
             end
         end
     end
+
+    DebugLog(("RaidUI: Classified raids -> available=%d, unavailable=%d."):format(
+        #availableEntries, #unavailableEntries
+    ))
 
     -- Keep the system's default ready/unavailable understanding in sync
     for _, entry in ipairs(list) do
@@ -485,6 +521,7 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
     end
 
     if hasUnavailable then
+        DebugLog(("RaidUI: Rendering %d 'currently unavailable' raid rows."):format(#unavailableEntries))
         for _, entry in ipairs(unavailableEntries) do
             local info = infoMap[entry.name]
             if info then
@@ -562,4 +599,8 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
     content:SetHeight(totalHeight)
     content:SetWidth(LRLFFrame.scrollFrame:GetWidth())
     LRLFFrame.scrollFrame:UpdateScrollChildRect()
+
+    DebugLog(("RaidUI: RefreshRaidRows complete. RenderedRows=%d, totalHeight=%d."):format(
+        rowIndex - 1, totalHeight
+    ))
 end

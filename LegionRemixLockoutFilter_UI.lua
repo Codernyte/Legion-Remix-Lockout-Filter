@@ -8,6 +8,16 @@ local ADDON_NAME, ADDON_TABLE = ...
 local LRLF_LFG = ADDON_TABLE.LFG or {}
 
 --------------------------------------------------
+-- Local debug helper
+--------------------------------------------------
+
+local function DebugLog(msg)
+    if type(LRLF_DebugLog) == "function" then
+        LRLF_DebugLog(msg)
+    end
+end
+
+--------------------------------------------------
 -- Shared difficulty constants
 --------------------------------------------------
 
@@ -184,6 +194,8 @@ function LRLF_UpdateFilterEnabledVisualState()
     local enabled = (LRLF_FilterEnabled ~= false)
     LRLF_FilterEnabled = enabled
 
+    DebugLog(("UI: FilterEnabledVisualState -> enabled=%s"):format(tostring(enabled)))
+
     if LRLF_FilterButtons and LRLF_FilterButtons.apply then
         LRLF_FilterButtons.apply:SetAlpha(enabled and 1.0 or 0.4)
     end
@@ -241,10 +253,13 @@ end
 --------------------------------------------------
 
 function LRLF_ResetAllFilters()
+    DebugLog("UI: ResetAllFilters called; clearing filter state for raids and dungeons.")
+
     LRLF_FilterState     = { raid = {}, dungeon = {} }
     LRLF_SystemSelection = { raid = {}, dungeon = {} }
 
     if not LRLFFrame or not LRLFFrame:IsShown() or not LFGListFrame or not LFGListFrame.SearchPanel then
+        DebugLog("UI: ResetAllFilters -> frame not visible or LFGListFrame/SearchPanel missing; only updating visuals.")
         LRLF_UpdateFilterEnabledVisualState()
         return
     end
@@ -255,6 +270,7 @@ function LRLF_ResetAllFilters()
               or (categoryID == 3 and "raid")
               or "raid"
 
+    DebugLog(("UI: ResetAllFilters -> refreshing side panel for kind=%s."):format(tostring(kind)))
     LRLF_RefreshSidePanelText(kind)
 end
 
@@ -279,8 +295,13 @@ end
 local function LRLF_BatchSelectDifficulty(kind, which)
     if kind ~= "raid" then return end
 
+    DebugLog(("UI: BatchSelectDifficulty(kind=%s, which=%s) triggered."):format(tostring(kind), tostring(which)))
+
     local infoMap, list = LRLF_LFG.BuildRaidDifficultyInfo()
-    if not infoMap or not list then return end
+    if not infoMap or not list then
+        DebugLog("UI: BatchSelectDifficulty -> missing infoMap or list; aborting.")
+        return
+    end
 
     LRLF_FilterState[kind]     = LRLF_FilterState[kind]     or {}
     LRLF_SystemSelection[kind] = LRLF_SystemSelection[kind] or {}
@@ -342,6 +363,8 @@ end
 function LRLF_CreateSideWindow()
     if LRLFFrame then return end
 
+    DebugLog("UI: Creating side window frame.")
+
     LRLF_Rows = LRLF_Rows or { raid = {}, dungeon = {} }
 
     local f = CreateFrame("Frame", "LRLFFrame", UIParent, "BasicFrameTemplateWithInset")
@@ -375,15 +398,19 @@ function LRLF_CreateSideWindow()
     local raidBtnMythic = CreateRaidTopButton("Mythic", "Mythic", 10 + (60 + 2) * 3)
 
     raidBtnAll:SetScript("OnClick", function()
+        DebugLog("UI: RaidTopButton 'All' clicked.")
         LRLF_BatchSelectDifficulty("raid", "All")
     end)
     raidBtnNormal:SetScript("OnClick", function()
+        DebugLog("UI: RaidTopButton 'Normal' clicked.")
         LRLF_BatchSelectDifficulty("raid", "Normal")
     end)
     raidBtnHeroic:SetScript("OnClick", function()
+        DebugLog("UI: RaidTopButton 'Heroic' clicked.")
         LRLF_BatchSelectDifficulty("raid", "Heroic")
     end)
     raidBtnMythic:SetScript("OnClick", function()
+        DebugLog("UI: RaidTopButton 'Mythic' clicked.")
         LRLF_BatchSelectDifficulty("raid", "Mythic")
     end)
 
@@ -416,12 +443,14 @@ function LRLF_CreateSideWindow()
     f.dungeonTopButtons.MYTHIC = dMythic
 
     dAll:SetScript("OnClick", function()
+        DebugLog("UI: DungeonTopButton 'All' clicked (select all ready).")
         if type(LRLF_DungeonSelectAllReady) == "function" then
             LRLF_DungeonSelectAllReady()
         end
     end)
 
     dMythic:SetScript("OnClick", function()
+        DebugLog("UI: DungeonTopButton 'Mythic' clicked.")
         LRLF_DungeonMode = "MYTHIC"
         if type(LRLF_UpdateDungeonModeButtons) == "function" then
             LRLF_UpdateDungeonModeButtons()
@@ -434,6 +463,7 @@ function LRLF_CreateSideWindow()
         then
             local searchPanel = LFGListFrame.SearchPanel
             if searchPanel:IsShown() and searchPanel.categoryID == 2 then
+                DebugLog("UI: Triggering LFG search from Dungeon 'Mythic' button.")
                 LRLF_LastSearchWasFiltered = true
                 LFGListSearchPanel_DoSearch(searchPanel)
             end
@@ -441,6 +471,7 @@ function LRLF_CreateSideWindow()
     end)
 
     dKeystone:SetScript("OnClick", function()
+        DebugLog("UI: DungeonTopButton 'Mythic+' clicked.")
         LRLF_DungeonMode = "KEYSTONE"
         if type(LRLF_UpdateDungeonModeButtons) == "function" then
             LRLF_UpdateDungeonModeButtons()
@@ -453,6 +484,7 @@ function LRLF_CreateSideWindow()
         then
             local searchPanel = LFGListFrame.SearchPanel
             if searchPanel:IsShown() and searchPanel.categoryID == 2 then
+                DebugLog("UI: Triggering LFG search from Dungeon 'Mythic+' button.")
                 LRLF_LastSearchWasFiltered = true
                 LFGListSearchPanel_DoSearch(searchPanel)
             end
@@ -523,10 +555,14 @@ function LRLF_CreateSideWindow()
     searchButton:SetText("Search")
 
     searchButton:SetScript("OnClick", function(self)
+        DebugLog("UI: Search button clicked in side window.")
+
         if not LRLF_IsTimerunner or not LRLF_IsTimerunner() then
+            DebugLog("UI: Search aborted (not a Timerunner).")
             return
         end
         if not LFGListFrame or not LFGListFrame.SearchPanel then
+            DebugLog("UI: Search aborted (LFGListFrame or SearchPanel missing).")
             return
         end
 
@@ -536,11 +572,13 @@ function LRLF_CreateSideWindow()
         local isRaid      = (categoryID == 3)
 
         if not searchPanel:IsShown() or (not isDungeon and not isRaid) then
+            DebugLog("UI: Search aborted (SearchPanel not shown for Legion dungeon/raid).")
             UIErrorsFrame:AddMessage("Filter: Open Legion Dungeons or Raids search first.", 1.0, 0.1, 0.1)
             return
         end
 
         LRLF_LastSearchWasFiltered = true
+        DebugLog(("UI: Initiating LFG search (categoryID=%s)."):format(tostring(categoryID)))
 
         if type(LFGListSearchPanel_DoSearch) == "function" then
             LFGListSearchPanel_DoSearch(searchPanel)
@@ -555,6 +593,7 @@ function LRLF_CreateSideWindow()
     local close = f.CloseButton or _G[f:GetName() .. "CloseButton"]
     if close then
         close:HookScript("OnClick", function()
+            DebugLog("UI: Side window closed; collapsing to eyeball toggle.")
             LRLF_UserCollapsed = true
             LRLF_UpdateVisibility()
         end)
@@ -563,6 +602,7 @@ function LRLF_CreateSideWindow()
     -- When shown, always refresh for the current kind and update helper text
     f:SetScript("OnShow", function()
         local kind = LRLF_GetCurrentKind and LRLF_GetCurrentKind() or "raid"
+        DebugLog(("UI: Side window OnShow; kind=%s."):format(tostring(kind)))
         if f.instructionText and type(LRLF_GetInstructionText) == "function" then
             f.instructionText:SetText(LRLF_GetInstructionText(kind))
         end
@@ -583,6 +623,8 @@ function LRLF_CreateFilterButtons()
     if (LRLF_FilterButtons and LRLF_FilterButtons.apply) or not LRLFFrame then
         return
     end
+
+    DebugLog("UI: Creating right-hand filter + settings icon strip.")
 
     LRLF_FilterButtons = LRLF_FilterButtons or {}
 
@@ -625,6 +667,7 @@ function LRLF_CreateFilterButtons()
 
     apply:SetScript("OnClick", function(self)
         LRLF_FilterEnabled = not LRLF_FilterEnabled
+        DebugLog(("UI: Filter eye icon clicked; FilterEnabled=%s."):format(tostring(LRLF_FilterEnabled)))
         LRLF_UpdateFilterEnabledVisualState()
 
         if LRLF_IsTimerunner and LRLF_IsTimerunner()
@@ -638,6 +681,7 @@ function LRLF_CreateFilterButtons()
                 else
                     LRLF_LastSearchWasFiltered = false
                 end
+                DebugLog("UI: Re-running LFG search due to filter toggle.")
                 LFGListSearchPanel_DoSearch(searchPanel)
             end
         end
@@ -677,6 +721,7 @@ function LRLF_CreateFilterButtons()
 
     settings:SetScript("OnClick", function(self)
         LRLF_OneClickSignupEnabled = not LRLF_OneClickSignupEnabled
+        DebugLog(("UI: One-click settings icon clicked; OneClickEnabled=%s."):format(tostring(LRLF_OneClickSignupEnabled)))
         UpdateSettingsAlpha()
     end)
 
@@ -697,6 +742,8 @@ end
 
 function LRLF_CreateToggleButton()
     if LRLF_ToggleButton or not LFGListFrame then return end
+
+    DebugLog("UI: Creating eyeball toggle button on LFGListFrame.")
 
     local b = CreateFrame("Button", "LRLF_ToggleButton", LFGListFrame)
     b:SetSize(38, 38)
@@ -721,6 +768,7 @@ function LRLF_CreateToggleButton()
     end)
 
     b:SetScript("OnClick", function(self)
+        DebugLog("UI: Eyeball toggle clicked; expanding side panel.")
         LRLF_UserCollapsed = false
         LRLF_UpdateVisibility()
     end)
@@ -759,6 +807,7 @@ function LRLF_RefreshSidePanelText(kind)
     end
 
     kind = kind or "raid"
+    DebugLog(("UI: RefreshSidePanelText called for kind=%s."):format(tostring(kind)))
 
     LRLF_ShowTopButtonsForKind(kind)
     if kind == "dungeon" and type(LRLF_UpdateDungeonModeButtons) == "function" then
@@ -784,15 +833,18 @@ function LRLF_RefreshSidePanelText(kind)
 
     if ejErr then
         table.insert(lines, "|cffffd100EJ (" .. labelPlural .. "):|r " .. ejErr)
+        DebugLog(("UI: EJ error while building %s: %s"):format(labelPlural, tostring(ejErr)))
     end
     if lfgErr then
         table.insert(lines, "|cffffd100LFG (" .. labelPlural .. "):|r " .. lfgErr)
+        DebugLog(("UI: LFG error while building %s: %s"):format(labelPlural, tostring(lfgErr)))
     end
     if ejErr or lfgErr then
         table.insert(lines, "")
     end
 
     if (not list) or (#list == 0) then
+        DebugLog(("UI: No Legion %s found for side panel."):format(labelPlural))
         table.insert(lines, "No Legion " .. labelPlural .. " found.")
         LRLFFrame.text:SetText(table.concat(lines, "\n"))
 
@@ -809,6 +861,8 @@ function LRLF_RefreshSidePanelText(kind)
         LRLF_UpdateFilterEnabledVisualState()
         return
     end
+
+    DebugLog(("UI: Built %d Legion %s for side panel."):format(#list, labelPlural))
 
     LRLFFrame.text:SetText(table.concat(lines, "\n") or "")
 

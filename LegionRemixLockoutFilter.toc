@@ -5,11 +5,11 @@
 ## Version: 1.0
 
 LRLF_Config.lua
+LegionRemixLockoutFilter_Debug.lua
 LegionRemixLockoutFilter_LFG.lua
 LegionRemixLockoutFilter_Filter.lua
 LegionRemixLockoutFilter_UI.lua
 LegionRemixLockoutFilter_UI_Dungeon.lua
 LegionRemixLockoutFilter_UI_Raid.lua
 LegionRemixLockoutFilter_OneClick.lua
-LegionRemixLockoutFilter_Debug.lua
 LegionRemixLockoutFilter.lua

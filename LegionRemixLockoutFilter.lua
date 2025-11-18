@@ -4,16 +4,28 @@
 local ADDON_NAME, ADDON_TABLE = ...
 
 --------------------------------------------------
+-- Local debug helper
+--------------------------------------------------
+
+local function DebugLog(msg)
+    if type(LRLF_DebugLog) == "function" then
+        LRLF_DebugLog(msg)
+    end
+end
+
+--------------------------------------------------
 -- Slash command stub (now toggles debug window)
 --------------------------------------------------
 
 SLASH_LRLFDEBUG1 = "/lrlfd"
 SlashCmdList["LRLFDEBUG"] = function(msg)
     -- /lrlfd toggles the LRLF debug window (no extra args needed)
+    DebugLog("Slash /lrlfd invoked. Toggling debug window.")
     if type(LRLF_ToggleDebugWindow) == "function" then
         LRLF_ToggleDebugWindow()
     else
         print("|cff00ff00[LRLF]|r Debug window not available.")
+        DebugLog("Slash /lrlfd: Debug window not available (LRLF_ToggleDebugWindow missing).")
     end
 end
 
@@ -85,6 +97,7 @@ end
 --------------------------------------------------
 
 function LRLF_HideAll()
+    DebugLog("LRLF_HideAll: Hiding LRLF UI elements and resetting collapse state.")
     LRLF_UserCollapsed = false
     if LRLFFrame then LRLFFrame:Hide() end
     if LRLF_ToggleButton then LRLF_ToggleButton:Hide() end
@@ -99,10 +112,13 @@ end
 
 function LRLF_TryHookLFG()
     if LFGListFrame and not LRLF_LFGHooksDone then
+        DebugLog("LRLF_TryHookLFG: Hooking LFGListFrame OnShow/OnHide.")
         LFGListFrame:HookScript("OnShow", function()
+            DebugLog("LFGListFrame:OnShow -> LRLF_UpdateVisibility()")
             LRLF_UpdateVisibility()
         end)
         LFGListFrame:HookScript("OnHide", function()
+            DebugLog("LFGListFrame:OnHide -> LRLF_UpdateVisibility()")
             LRLF_UpdateVisibility()
         end)
         LRLF_LFGHooksDone = true
@@ -115,6 +131,7 @@ function LRLF_TryHookLFG()
         and type(LFGListSearchPanel_UpdateResultList) == "function"
     then
         LRLF_ResultListHookDone = true
+        DebugLog("LRLF_TryHookLFG: Installing hook for LFGListSearchPanel_UpdateResultList.")
 
         hooksecurefunc("LFGListSearchPanel_UpdateResultList", function(panel)
             -- Only operate:
@@ -148,12 +165,21 @@ function LRLF_TryHookLFG()
             end
 
             if type(LRLF_FilterResults) ~= "function" then
+                DebugLog("UpdateResultList hook: LRLF_FilterResults not available; skipping filter.")
                 return
             end
+
+            local beforeCount = #results
+            DebugLog(("UpdateResultList hook: kind=%s, before filter=%d results.")
+                :format(kind, beforeCount))
 
             -- Re-apply our filter to whatever Blizzard just gave us.
             LRLF_FilterResults(results, kind)
             panel.totalResults = #results
+
+            local afterCount = #results
+            DebugLog(("UpdateResultList hook: kind=%s, after filter=%d results.")
+                :format(kind, afterCount))
 
             -- Update the visual list ONLY; do NOT trigger a new search.
             if type(LFGListSearchPanel_UpdateResults) == "function" then
@@ -168,12 +194,16 @@ end
 --------------------------------------------------
 
 function LRLF_UpdateVisibility()
+    DebugLog("LRLF_UpdateVisibility: Evaluating visibility state.")
+
     if not LRLF_IsTimerunner() then
+        DebugLog("LRLF_UpdateVisibility: Not a Timerunner. Hiding all.")
         LRLF_HideAll()
         return
     end
 
     if not LFGListFrame then
+        DebugLog("LRLF_UpdateVisibility: LFGListFrame not available. Hiding all.")
         LRLF_HideAll()
         return
     end
@@ -181,6 +211,7 @@ function LRLF_UpdateVisibility()
     LRLF_TryHookLFG()
 
     if not LFGListFrame:IsShown() then
+        DebugLog("LRLF_UpdateVisibility: LFGListFrame not shown. Hiding all.")
         LRLF_HideAll()
         return
     end
@@ -197,24 +228,30 @@ function LRLF_UpdateVisibility()
         and isDungeonOrRaid
 
     if not premadeSearchActive then
+        DebugLog("LRLF_UpdateVisibility: Premade search not active or wrong category. Hiding all.")
         LRLF_HideAll()
         return
     end
 
     local kind = isDungeon and "dungeon" or "raid"
+    DebugLog(("LRLF_UpdateVisibility: Premade search active. kind=%s, collapsed=%s.")
+        :format(kind, tostring(LRLF_UserCollapsed)))
 
     LRLF_AttachToPremade()
     if not LRLF_ToggleButton then
+        DebugLog("LRLF_UpdateVisibility: Creating toggle button.")
         LRLF_CreateToggleButton()
     end
 
     if LRLF_UserCollapsed then
+        DebugLog("LRLF_UpdateVisibility: UserCollapsed=true -> hiding panel, showing toggle tab.")
         if LRLFFrame then LRLFFrame:Hide() end
         if LRLF_ToggleButton then LRLF_ToggleButton:Show() end
         if LRLF_FilterButtons.apply then LRLF_FilterButtons.apply:Hide() end
         if LRLF_FilterButtons.settings then LRLF_FilterButtons.settings:Hide() end
         if LRLF_FilterButtons.bg then LRLF_FilterButtons.bg:Hide() end
     else
+        DebugLog("LRLF_UpdateVisibility: UserCollapsed=false -> showing side panel and icons.")
         if LRLFFrame then
             LRLFFrame:Show()
             LRLF_RefreshSidePanelText(kind)
@@ -237,24 +274,33 @@ eventFrame:RegisterEvent("LFG_LIST_SEARCH_RESULTS_RECEIVED")
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
-        if not LRLF_IsTimerunner() then
+        DebugLog("EVENT: PLAYER_LOGIN fired for LRLF.")
+        local isTimerunner = LRLF_IsTimerunner()
+
+        if not isTimerunner then
+            DebugLog("PLAYER_LOGIN: Character is NOT a Timerunner. Addon UI disabled.")
             print("|cff00ff00[LegionRemixLockoutFilter]|r This addon is only functional on Timerunner characters. UI is disabled on this character.")
             return
         end
 
+        DebugLog("PLAYER_LOGIN: Character is a Timerunner. Initializing LRLF UI.")
         LRLF_CreateSideWindow()
 
         -- Hook PVE frame changes so we can attach/hide our panel correctly
         if type(PVEFrame_ToggleFrame) == "function" then
+            DebugLog("PLAYER_LOGIN: Hooking PVEFrame_ToggleFrame for visibility updates.")
             hooksecurefunc("PVEFrame_ToggleFrame", function()
+                DebugLog("PVEFrame_ToggleFrame hook -> LRLF_TryHookLFG() + LRLF_UpdateVisibility().")
                 LRLF_TryHookLFG()
                 LRLF_UpdateVisibility()
             end)
         end
 
         if type(LFGListFrame_SetActivePanel) == "function" then
+            DebugLog("PLAYER_LOGIN: Hooking LFGListFrame_SetActivePanel for visibility updates.")
             hooksecurefunc("LFGListFrame_SetActivePanel", function(frame, panel)
                 if frame == LFGListFrame then
+                    DebugLog("LFGListFrame_SetActivePanel hook: Active panel changed -> LRLF_UpdateVisibility().")
                     LRLF_UpdateVisibility()
                 end
             end)
@@ -264,8 +310,11 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         LRLF_UpdateVisibility()
 
     elseif event == "LFG_LIST_AVAILABILITY_UPDATE" then
+        DebugLog("EVENT: LFG_LIST_AVAILABILITY_UPDATE fired.")
         if LRLF_IsTimerunner() then
             LRLF_UpdateVisibility()
+        else
+            DebugLog("LFG_LIST_AVAILABILITY_UPDATE: Ignored (not a Timerunner).")
         end
 
     elseif event == "LFG_LIST_SEARCH_RESULTS_RECEIVED" then
@@ -273,6 +322,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         -- to re-apply filtering whenever Blizzard updates results.
         -- No additional filtering is needed here, and we never trigger
         -- a new search from sign-ups.
+        DebugLog("EVENT: LFG_LIST_SEARCH_RESULTS_RECEIVED fired (handled by UpdateResultList hook).")
         return
     end
 end)

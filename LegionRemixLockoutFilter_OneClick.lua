@@ -6,6 +6,16 @@
 local addonName = ...
 
 ----------------------------------------------------------------------
+-- Local debug helper
+----------------------------------------------------------------------
+
+local function DebugLog(msg)
+    if type(LRLF_DebugLog) == "function" then
+        LRLF_DebugLog(msg)
+    end
+end
+
+----------------------------------------------------------------------
 -- State
 ----------------------------------------------------------------------
 
@@ -89,6 +99,7 @@ end
 local function ApplyRolesToDialog(mode)
     local dialog = LFGListApplicationDialog
     if not dialog then
+        DebugLog("OneClick: ApplyRolesToDialog aborted (no LFGListApplicationDialog).")
         return false
     end
 
@@ -97,6 +108,7 @@ local function ApplyRolesToDialog(mode)
     local dpsBtn    = dialog.DamagerButton and dialog.DamagerButton.CheckButton
 
     if not (tankBtn or healerBtn or dpsBtn) then
+        DebugLog("OneClick: ApplyRolesToDialog aborted (no role checkbuttons).")
         return false
     end
 
@@ -104,12 +116,19 @@ local function ApplyRolesToDialog(mode)
 
     if mode == AUTO_MODE_SPEC then
         tank, heal, dps = GetRolesForCurrentSpec()
+        DebugLog(("OneClick: Applying SPEC roles (tank=%s, heal=%s, dps=%s).")
+            :format(tostring(tank), tostring(heal), tostring(dps)))
     elseif mode == AUTO_MODE_ALLROLES then
         tank, heal, dps = GetAllRolesForClass()
+        DebugLog(("OneClick: Applying ALL-ROLES (tank=%s, heal=%s, dps=%s).")
+            :format(tostring(tank), tostring(heal), tostring(dps)))
+    else
+        DebugLog("OneClick: ApplyRolesToDialog called with AUTO_MODE_NONE; no roles applied.")
     end
 
     -- If nothing ended up selected, don't auto-confirm
     if not (tank or heal or dps) then
+        DebugLog("OneClick: No roles resolved from mode; skipping auto-confirm.")
         return false
     end
 
@@ -155,11 +174,13 @@ local function HandleSearchEntryClick(self, button)
     end
 
     if not self or not self.resultID then
+        DebugLog("OneClick: HandleSearchEntryClick aborted (no self or resultID).")
         return
     end
 
     local panel = GetSearchPanel()
     if not panel or not panel.SignUpButton then
+        DebugLog("OneClick: HandleSearchEntryClick aborted (no SearchPanel or SignUpButton).")
         return
     end
 
@@ -168,6 +189,8 @@ local function HandleSearchEntryClick(self, button)
     --   Shift only           => AUTO_MODE_SPEC
     --   Ctrl + Shift         => AUTO_MODE_ALLROLES
     autoConfirmMode = DetermineAutoConfirmMode()
+    DebugLog(("OneClick: Entry clicked. resultID=%s, autoMode=%d.")
+        :format(tostring(self.resultID), autoConfirmMode))
 
     -- Check if this result can be selected (if the helper exists)
     local canSelect = true
@@ -176,6 +199,12 @@ local function HandleSearchEntryClick(self, button)
     end
 
     if not canSelect or not panel.SignUpButton:IsEnabled() then
+        DebugLog(("OneClick: Cannot sign up for resultID=%s (canSelect=%s, signUpEnabled=%s).")
+            :format(
+                tostring(self.resultID),
+                tostring(canSelect),
+                tostring(panel.SignUpButton and panel.SignUpButton:IsEnabled())
+            ))
         -- If we can't sign up, don't auto-confirm anything.
         autoConfirmMode = AUTO_MODE_NONE
         return
@@ -183,31 +212,43 @@ local function HandleSearchEntryClick(self, button)
 
     -- Make sure the clicked result is selected
     if panel.selectedResult ~= self.resultID then
+        DebugLog(("OneClick: Selecting resultID=%s on search panel.")
+            :format(tostring(self.resultID)))
         LFGListSearchPanel_SelectResult(panel, self.resultID)
     end
 
     -- Trigger Blizzard's sign-up logic.
     -- Role handling + possible auto-confirm will be done in the dialog's OnShow hook.
+    DebugLog(("OneClick: Calling LFGListSearchPanel_SignUp for resultID=%s.")
+        :format(tostring(self.resultID)))
     LFGListSearchPanel_SignUp(panel)
 end
 
 local function HandleApplicationDialogOnShow(self)
     -- If this was a plain left-click, we don't auto-confirm.
     if autoConfirmMode == AUTO_MODE_NONE then
+        DebugLog("OneClick: ApplicationDialog OnShow (AUTO_MODE_NONE) -> no auto-confirm.")
         return
     end
 
     if not self.SignUpButton or not self.SignUpButton:IsEnabled() then
+        DebugLog("OneClick: ApplicationDialog OnShow -> SignUpButton missing/disabled; clearing mode.")
         autoConfirmMode = AUTO_MODE_NONE
         return
     end
+
+    DebugLog(("OneClick: ApplicationDialog OnShow with autoMode=%d; applying roles and possibly auto-clicking.")
+        :format(autoConfirmMode))
 
     -- Apply roles for the chosen mode (spec-only or all roles).
     local ok = ApplyRolesToDialog(autoConfirmMode)
     autoConfirmMode = AUTO_MODE_NONE
 
     if ok then
+        DebugLog("OneClick: Roles applied successfully; auto-clicking SignUpButton.")
         self.SignUpButton:Click()
+    else
+        DebugLog("OneClick: Roles not applied; leaving dialog open for manual confirmation.")
     end
 end
 
@@ -226,7 +267,7 @@ local function SetupOneClickHooks()
     ------------------------------------------------------------------
     if not clickHooked and type(LFGListSearchEntry_OnClick) == "function" then
         clickHooked = true
-
+        DebugLog("OneClick: Hooking LFGListSearchEntry_OnClick for 1-click signup.")
         hooksecurefunc("LFGListSearchEntry_OnClick", function(self, button)
             HandleSearchEntryClick(self, button)
         end)
@@ -237,7 +278,7 @@ local function SetupOneClickHooks()
     ------------------------------------------------------------------
     if not dialogHooked and LFGListApplicationDialog and LFGListApplicationDialog.SignUpButton then
         dialogHooked = true
-
+        DebugLog("OneClick: Hooking LFGListApplicationDialog OnShow for auto-confirm roles.")
         LFGListApplicationDialog:HookScript("OnShow", function(self)
             HandleApplicationDialogOnShow(self)
         end)
@@ -255,12 +296,15 @@ f:RegisterEvent("PLAYER_LOGIN")
 f:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 == addonName or arg1 == "Blizzard_LFGList" then
+            DebugLog(("OneClick: ADDON_LOADED for %s; attempting to set up hooks."):format(tostring(arg1)))
             SetupOneClickHooks()
         end
     elseif event == "PLAYER_LOGIN" then
+        DebugLog("OneClick: PLAYER_LOGIN fired; attempting to set up hooks.")
         SetupOneClickHooks()
     end
 end)
 
 -- Try once at file load in case everything is already present
+DebugLog("OneClick: File load complete; initial attempt to set up hooks.")
 SetupOneClickHooks()

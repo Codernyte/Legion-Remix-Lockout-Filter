@@ -7,6 +7,16 @@ local LRLF_Filter = ADDON_TABLE.Filter or {}
 ADDON_TABLE.Filter = LRLF_Filter
 
 --------------------------------------------------
+-- Local debug helper (no-op if LRLF_DebugLog is missing)
+--------------------------------------------------
+
+local function DebugLog(msg)
+    if type(LRLF_DebugLog) == "function" then
+        LRLF_DebugLog(msg)
+    end
+end
+
+--------------------------------------------------
 -- Local helpers
 --------------------------------------------------
 
@@ -146,29 +156,45 @@ end
 --------------------------------------------------
 
 function LRLF_Filter.FilterResults(results, kind)
+    local kindLabel = kind or "unknown"
+
     if not results or type(results) ~= "table" or #results == 0 then
+        DebugLog(string.format("Filter: kind=%s – no results passed to filter.", kindLabel))
         return
     end
     if not LRLF_FilterState or not kind then
+        DebugLog(string.format("Filter: kind=%s – missing LRLF_FilterState or kind; aborting.", kindLabel))
         return
     end
 
     local filterKind = LRLF_FilterState[kind]
     if not filterKind then
+        DebugLog(string.format("Filter: kind=%s – no filterKind for this kind; aborting.", kindLabel))
         return
     end
 
-    --------------------------------------------------
-    -- Check if at least one selection exists
-    --------------------------------------------------
-    local modeKey = (kind == "dungeon") and GetDungeonModeKey() or nil
-    local anySelected = HasAnySelectedDifficulty(filterKind, modeKey)
+    local original_size = #results
+    local modeKey       = (kind == "dungeon") and GetDungeonModeKey() or nil
+    local anySelected   = HasAnySelectedDifficulty(filterKind, modeKey)
+
+    DebugLog(string.format(
+        "Filter: start – kind=%s, modeKey=%s, original=%d, anySelected=%s",
+        kindLabel,
+        modeKey or "-",
+        original_size,
+        anySelected and "true" or "false"
+    ))
 
     -- If nothing selected, clear all results
     if not anySelected then
         for i = #results, 1, -1 do
             results[i] = nil
         end
+        DebugLog(string.format(
+            "Filter: kind=%s – no difficulties selected; cleared all %d results.",
+            kindLabel,
+            original_size
+        ))
         return
     end
 
@@ -176,12 +202,17 @@ function LRLF_Filter.FilterResults(results, kind)
     -- Build Legion instance list for this kind
     --------------------------------------------------
     local instances = BuildInstanceIndex(kind)
+    local instanceCount = instances and #instances or 0
+    DebugLog(string.format(
+        "Filter: kind=%s – built instance index with %d entries.",
+        kindLabel,
+        instanceCount
+    ))
 
     --------------------------------------------------
     -- In-place filtering using shift-down pattern
     --------------------------------------------------
-    local shift_down    = 0
-    local original_size = #results
+    local shift_down = 0
 
     for idx = 1, original_size do
         local id   = results[idx]
@@ -201,6 +232,18 @@ function LRLF_Filter.FilterResults(results, kind)
             results[idx] = nil
         end
     end
+
+    local finalCount  = #results
+    local removedCount = original_size - finalCount
+
+    DebugLog(string.format(
+        "Filter: done – kind=%s, modeKey=%s, kept=%d, removed=%d (from %d).",
+        kindLabel,
+        modeKey or "-",
+        finalCount,
+        removedCount,
+        original_size
+    ))
 end
 
 --------------------------------------------------
