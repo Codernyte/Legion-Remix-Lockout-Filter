@@ -55,6 +55,26 @@ local function LRLF_ExclusiveClearAll()
 end
 
 --------------------------------------------------
+-- Helper: instruction text height with a safe minimum
+--------------------------------------------------
+
+local function LRLF_GetRaidInstructionHeight()
+    if not LRLFFrame or not LRLFFrame.instructionText then
+        return 0
+    end
+
+    local instrText = LRLFFrame.instructionText:GetText()
+    if instrText and instrText ~= "" then
+        -- Use a fixed height budget so layout does not depend on first-paint metrics.
+        -- ~2 lines of text + a small gap.
+        return 38
+    end
+
+    return 0
+end
+
+
+--------------------------------------------------
 -- Name-click behaviors (instance-level)
 --------------------------------------------------
 
@@ -258,16 +278,8 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
     local rowHeight = 34
 
     -- Account for helper instruction text height so rows don't overlap it
-    local instructionHeight = 0
-    if LRLFFrame.instructionText then
-        local instrText = LRLFFrame.instructionText:GetText()
-        if instrText and instrText ~= "" then
-            instructionHeight = LRLFFrame.instructionText:GetStringHeight() or 0
-            instructionHeight = instructionHeight + 4 -- small gap
-        end
-    end
-
-    local headerHeight = (textHeight or 0) + instructionHeight
+    local instructionHeight = LRLF_GetRaidInstructionHeight()
+    local headerHeight      = (textHeight or 0) + instructionHeight
 
     local y        = -headerHeight - 8
     local rowIndex = 1
@@ -583,18 +595,12 @@ function LRLF_RefreshRaidRows(kind, infoMap, list, textHeight)
         end
     end
 
-    local instructionHeightForTotal = 0
-    if LRLFFrame.instructionText then
-        local instrText = LRLFFrame.instructionText:GetText()
-        if instrText and instrText ~= "" then
-            instructionHeightForTotal = LRLFFrame.instructionText:GetStringHeight() or 0
-            instructionHeightForTotal = instructionHeightForTotal + 4
-        end
-    end
-
-    local headerHeightTotal = (textHeight or 0) + instructionHeightForTotal
+    -- Reuse the same header height we used at the top of the function so there is
+    -- no layout shift between first paint and later refreshes.
+    local headerHeightTotal = headerHeight
 
     local totalHeight = (headerHeightTotal + 8) + ((rowIndex - 1) * (rowHeight + spacing)) + 20
+
     if totalHeight < 1 then totalHeight = 1 end
     content:SetHeight(totalHeight)
     content:SetWidth(LRLFFrame.scrollFrame:GetWidth())

@@ -64,12 +64,13 @@ local function LRLF_GetInstructionHeight()
 
     local instrText = LRLFFrame.instructionText:GetText()
     if instrText and instrText ~= "" then
-        local h = LRLFFrame.instructionText:GetStringHeight() or 0
-        return h + 4 -- small gap
+        -- Fixed height budget (same as raids) to avoid first-paint zero/short heights.
+        return 28
     end
 
     return 0
 end
+
 
 ----------------------------------------------------------------------
 -- "All" checkbox handler for dungeon rows
@@ -737,10 +738,12 @@ function LRLF_RefreshDungeonRows(
         end
     end
 
-    local instructionHeightForTotal = LRLF_GetInstructionHeight()
-    local headerHeightTotal         = (textHeight or 0) + instructionHeightForTotal
+   -- Use the same header height we computed at the top of the function so the
+    -- layout doesn’t change between the first draw and subsequent clicks.
+    local headerHeightTotal = headerHeight
 
     local totalHeight = (headerHeightTotal + 8) + ((rowIndex - 1) * (rowHeight + spacing)) + 20
+
     if totalHeight < 1 then
         totalHeight = 1
     end

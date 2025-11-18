@@ -1,5 +1,7 @@
+--######################################################################
 -- LegionRemixLockoutFilter.lua
 -- Main wiring, state, events, Timerunner gating
+--######################################################################
 
 local ADDON_NAME, ADDON_TABLE = ...
 
@@ -253,8 +255,13 @@ function LRLF_UpdateVisibility()
     else
         DebugLog("LRLF_UpdateVisibility: UserCollapsed=false -> showing side panel and icons.")
         if LRLFFrame then
-            LRLFFrame:Show()
-            LRLF_RefreshSidePanelText(kind)
+            if LRLFFrame:IsShown() then
+                -- Already visible: refresh contents for the current kind.
+                LRLF_RefreshSidePanelText(kind)
+            else
+                -- First time showing: OnShow handler will call RefreshSidePanelText.
+                LRLFFrame:Show()
+            end
         end
         if LRLF_ToggleButton then LRLF_ToggleButton:Hide() end
         if LRLF_FilterButtons.apply then LRLF_FilterButtons.apply:Show() end
