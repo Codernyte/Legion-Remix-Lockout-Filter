@@ -1,4 +1,4 @@
-## Interface: 110205
+## Interface: 110207
 ## Title: Legion Remix Lockout Filter
 ## Notes: Filter the LFG to show everything you're not locked out from for that day to see what you still have left to do.
 ## Author: Figment (Illidan)
